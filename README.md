@@ -1,12 +1,14 @@
 # TRIKI Control
 
+![TRIKI Control Screenshot](triki-control_screenshot.jpg)
+
 ![Version](https://img.shields.io/badge/version-0.1.0--alpha.1-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
 Desktop remapper for the TRIKI Bluetooth motion cap.
 
 TRIKI Control pairs with the cap, reads motion data over Bluetooth Low Energy, detects gestures, and maps them to keyboard, media-key, or macro actions. It is built as a practical background utility: one pairing button, simple profiles, and persistent remapping.
 
-Screenshots and GIFs will be added before the first public release.
+A short control demo GIF will be added before the first public release.
 
 [Features](#features) | [Quick Start](#quick-start) | [Usage](#usage) | [Documentation](#documentation) | [Contributing](CONTRIBUTING.md)
 
