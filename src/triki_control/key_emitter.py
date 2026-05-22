@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import ctypes
 import platform
@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from triki_gestures import normalize_gesture_label
+from triki_control.gestures import normalize_gesture_label
 
 
 DEFAULT_KEYMAP: dict[str, str | None] = {

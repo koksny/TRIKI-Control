@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -7,7 +7,7 @@ import platform
 import sys
 from collections.abc import Callable, Sequence
 
-from triki_key_emitter import (
+from triki_control.key_emitter import (
     KeyEmissionError,
     LinuxUInputKeyEmitter,
     linux_evdev_code_for_key,

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import time
@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from triki_gestures import GESTURE_LABELS, normalize_gesture_label
-from triki_key_emitter import (
+from triki_control.gestures import GESTURE_LABELS, normalize_gesture_label
+from triki_control.key_emitter import (
     KeyEmissionError,
     create_default_key_emitter,
     normalize_key_name,

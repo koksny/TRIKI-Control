@@ -12,7 +12,8 @@ From the repo root:
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
-python triki_app.py
+python -m pip install -e .
+python -m triki_control.app
 ```
 
 Open the printed local URL if the browser does not open automatically.
@@ -39,13 +40,13 @@ Log out and back in after changing groups. Some distributions use a different in
 Safe dry-run, no key emitted:
 
 ```bash
-python triki_linux_smoke.py --json
+python -m triki_control.linux_smoke --json
 ```
 
 Real uinput test:
 
 ```bash
-python triki_linux_smoke.py --json --emit --key space
+python -m triki_control.linux_smoke --json --emit --key space
 ```
 
 The real test creates the virtual keyboard and sends one key press. Focus a text editor first if you want to see visible input.
@@ -57,7 +58,7 @@ If the smoke report says `missing`, load the kernel module with `sudo modprobe u
 WSL is useful for import and dry-run checks:
 
 ```bash
-python3 triki_linux_smoke.py --json
+python3 -m triki_control.linux_smoke --json
 python3 -m unittest tests.test_triki_linux_smoke
 ```
 
@@ -68,7 +69,7 @@ WSL usually does not provide a real desktop input stack or `/dev/uinput` suitabl
 Print environment diagnostics:
 
 ```bash
-python triki_diagnostics.py --json
+python -m triki_control.diagnostics --json
 ```
 
 The running app also exposes the same information at:
@@ -87,4 +88,4 @@ Build a source-style Linux archive:
 bash tools/package_linux_release.sh
 ```
 
-The archive is written to `release/TRIKI-Control-<version>-linux.tar.gz` and includes `triki-control`, the Python source files, `requirements.txt`, `README.md`, `CREDITS.md`, `LICENSE`, and `docs`.
+The archive is written to `release/TRIKI-Control-<version>-linux.tar.gz` and includes `triki-control`, `src/triki_control`, `pyproject.toml`, `requirements.txt`, `README.md`, `CREDITS.md`, `LICENSE`, and `docs`.

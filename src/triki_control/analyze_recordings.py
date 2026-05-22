@@ -1,12 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import csv
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from triki_classifier import classify_records, load_recording_csv
-from triki_gestures import normalize_gesture_label
+from triki_control.classifier import classify_records, load_recording_csv
+from triki_control.gestures import normalize_gesture_label
 
 
 def normalize_label(label: str) -> str:

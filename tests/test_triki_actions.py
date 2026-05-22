@@ -1,9 +1,9 @@
-import json
+﻿import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from triki_actions import (
+from triki_control.actions import (
     ActionBinding,
     ActionExecutor,
     ActionStep,
@@ -14,7 +14,7 @@ from triki_actions import (
     parse_macro_text,
     save_config,
 )
-from triki_key_emitter import KeyEmissionError, NullKeyEmitter, vk_for_key
+from triki_control.key_emitter import KeyEmissionError, NullKeyEmitter, vk_for_key
 
 
 class FailingEmitter:

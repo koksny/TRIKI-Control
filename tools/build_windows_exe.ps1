@@ -1,7 +1,8 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $root ".venv\Scripts\python.exe"
+$env:PYTHONPATH = Join-Path $root "src"
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Expected venv Python at $python. Create .venv and install requirements first."
@@ -25,6 +26,7 @@ try {
             "--noconfirm",
             "--clean",
             "--onefile",
+            "--paths", (Join-Path $root "src"),
             "--name", $Name,
             "--collect-all", "bleak",
             "--collect-all", "winrt",
@@ -42,7 +44,7 @@ try {
             $args += "--console"
         }
 
-        $args += "triki_desktop.py"
+        $args += (Join-Path $root "src\triki_control\desktop.py")
         & $python @args
 
         if ($LASTEXITCODE -ne 0) {

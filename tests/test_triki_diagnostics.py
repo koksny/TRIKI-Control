@@ -1,9 +1,9 @@
-import io
+﻿import io
 import json
 import unittest
 from pathlib import Path
 
-from triki_diagnostics import collect_diagnostics, main, module_import_status
+from triki_control.diagnostics import collect_diagnostics, main, module_import_status
 
 
 class TrikiDiagnosticsTests(unittest.TestCase):

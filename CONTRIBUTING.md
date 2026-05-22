@@ -8,6 +8,7 @@ TRIKI Control is an alpha desktop remapper for a specific BLE motion controller.
 python -m venv .venv
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-build.txt
+python -m pip install -e .
 ```
 
 Run tests:
@@ -19,7 +20,7 @@ python -m unittest discover -s tests
 Run the app:
 
 ```bash
-python triki_app.py
+python -m triki_control.app
 ```
 
 ## Scope

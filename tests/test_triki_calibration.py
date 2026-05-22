@@ -1,9 +1,9 @@
-import json
+﻿import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from triki_calibration import (
+from triki_control.calibration import (
     CalibrationAction,
     CalibrationRecorder,
     CalibrationSession,
@@ -11,8 +11,8 @@ from triki_calibration import (
     normalize_label,
     pairing_button_hint,
 )
-from triki_classifier import GesturePrediction, MotionFeatures
-from triki_protocol import MotionSample
+from triki_control.classifier import GesturePrediction, MotionFeatures
+from triki_control.protocol import MotionSample
 
 
 def sample(c=0):

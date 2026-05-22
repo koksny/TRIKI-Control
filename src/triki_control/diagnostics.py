@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import importlib
@@ -8,9 +8,9 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from triki_linux_smoke import probe_uinput_status
-from triki_key_emitter import is_macos_accessibility_trusted
-from triki_metadata import APP_NAME, APP_VERSION
+from triki_control.linux_smoke import probe_uinput_status
+from triki_control.key_emitter import is_macos_accessibility_trusted
+from triki_control.metadata import APP_NAME, APP_VERSION
 
 
 DIAGNOSTIC_MODULES = ("bleak", "webview")

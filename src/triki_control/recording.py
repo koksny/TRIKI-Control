@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import contextlib
@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from statistics import mean, pstdev
 
-from triki_protocol import MotionSample
+from triki_control.protocol import MotionSample
 
 
 AXIS_NAMES = ("a", "b", "c", "d", "e", "f")

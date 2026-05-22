@@ -1,8 +1,8 @@
-import unittest
+﻿import unittest
 import ctypes
 from unittest.mock import patch
 
-from triki_key_emitter import (
+from triki_control.key_emitter import (
     DEFAULT_KEYMAP,
     INPUT,
     KEYEVENTF_EXTENDEDKEY,
@@ -410,7 +410,7 @@ class KeyEmitterTests(unittest.TestCase):
     def test_output_controller_defaults_to_platform_key_emitter_factory(self):
         emitter = NullKeyEmitter()
 
-        with patch("triki_key_emitter.create_default_key_emitter", return_value=emitter) as factory:
+        with patch("triki_control.key_emitter.create_default_key_emitter", return_value=emitter) as factory:
             controller = KeyOutputController(enabled=True)
             result = controller.handle_gesture("lift")
 

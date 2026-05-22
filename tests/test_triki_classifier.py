@@ -1,8 +1,8 @@
-import unittest
+﻿import unittest
 import math
 
-from triki_classifier import MotionFeatures, classify_features, classify_records, extract_features
-from triki_protocol import MotionSample
+from triki_control.classifier import MotionFeatures, classify_features, classify_records, extract_features
+from triki_control.protocol import MotionSample
 
 
 def records(values):

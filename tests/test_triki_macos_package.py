@@ -1,10 +1,10 @@
-import stat
+﻿import stat
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
-from triki_macos_package import (
+from triki_control.macos_package import (
     MACOS_BLUETOOTH_USAGE_DESCRIPTION,
     build_macos_release,
     macos_info_plist,

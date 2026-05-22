@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import math
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
 
-from triki_protocol import MotionSample
+from triki_control.protocol import MotionSample
 
 
 Record = tuple[float, MotionSample]

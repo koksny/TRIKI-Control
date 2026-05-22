@@ -1,6 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from triki_app import main
+from triki_control.app import main
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string] $Version = "",
     [switch] $Build,
     [switch] $ExeAsset
@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $root ".venv\Scripts\python.exe"
+$env:PYTHONPATH = Join-Path $root "src"
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Expected venv Python at $python. Create .venv and install requirements first."
@@ -16,7 +17,7 @@ if (-not (Test-Path -LiteralPath $python)) {
 Push-Location $root
 try {
     if ([string]::IsNullOrWhiteSpace($Version)) {
-        $Version = (& $python -c "import triki_app; print(triki_app.APP_VERSION)").Trim()
+        $Version = (& $python -c "from triki_control.metadata import APP_VERSION; print(APP_VERSION)").Trim()
     }
 
     if ($Build) {
@@ -53,7 +54,7 @@ try {
     @"
 TRIKI Control $Version
 
-Created by Wojciech "Koksny" Górny, Koksny.com.
+Created by Wojciech "Koksny" GĂłrny, Koksny.com.
 Released under the MIT License.
 
 Start with TRIKI-Control.exe.

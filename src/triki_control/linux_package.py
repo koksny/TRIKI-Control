@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import shutil
@@ -32,6 +32,7 @@ def build_linux_release(
 
     for filename in _linux_release_root_files():
         shutil.copy2(root / filename, stage_dir / filename)
+    shutil.copytree(root / "src", stage_dir / "src")
     shutil.copytree(root / "docs", stage_dir / "docs")
     _write_launcher(stage_dir / "triki-control")
     _write_start_here(stage_dir / "START-HERE.txt", version)
@@ -46,26 +47,8 @@ def _linux_release_root_files() -> tuple[str, ...]:
         "README.md",
         "CREDITS.md",
         "LICENSE",
+        "pyproject.toml",
         "requirements.txt",
-        "triki_actions.py",
-        "triki_analyze_recordings.py",
-        "triki_app.py",
-        "triki_battery.py",
-        "triki_calibration.py",
-        "triki_calibration_server.py",
-        "triki_classifier.py",
-        "triki_desktop.py",
-        "triki_diagnostics.py",
-        "triki_gestures.py",
-        "triki_key_emitter.py",
-        "triki_linux_package.py",
-        "triki_linux_smoke.py",
-        "triki_live.py",
-        "triki_metadata.py",
-        "triki_play.py",
-        "triki_probe.py",
-        "triki_protocol.py",
-        "triki_recording.py",
     )
 
 
@@ -79,7 +62,8 @@ if [[ -x "$ROOT/.venv/bin/python" ]]; then
 else
   PYTHON="${PYTHON:-python3}"
 fi
-exec "$PYTHON" "$ROOT/triki_app.py" "$@"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON" -m triki_control.app "$@"
 """,
         encoding="utf-8",
         newline="\n",
@@ -101,7 +85,7 @@ First run:
   ./triki-control
 
 Before using key output, read docs/linux.md and run:
-  python triki_linux_smoke.py --json
+  python -m triki_control.linux_smoke --json
 """,
         encoding="utf-8",
         newline="\n",
@@ -111,7 +95,7 @@ Before using key output, read docs/linux.md and run:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Package TRIKI Control for Linux.")
     parser.add_argument("--version", default="")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--release-dir", type=Path, default=Path("release"))
     return parser
 
@@ -120,7 +104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     version = args.version
     if not version:
-        from triki_metadata import APP_VERSION
+        from triki_control.metadata import APP_VERSION
 
         version = APP_VERSION
     archive_path = build_linux_release(

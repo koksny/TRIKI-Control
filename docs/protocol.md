@@ -34,7 +34,7 @@ LED test command:
 
 The LED characteristic uses write-with-response. Android captures from the official app showed repeated writes to handle `0x0012` with `01` at button hold and `00` at release; GATT discovery maps that handle to `6e400004-b5a3-f393-e0a9-e50e24dcca9e`.
 
-The parser in `triki_protocol.py` converts notification bytes into six signed channels. Current classifier names those channels `a` through `f`; the exact physical sensor mapping is still research-derived.
+The parser in `src/triki_control/protocol.py` converts notification bytes into six signed channels. Current classifier names those channels `a` through `f`; the exact physical sensor mapping is still research-derived.
 
 Current production gestures:
 

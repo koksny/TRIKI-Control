@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import asyncio
@@ -15,9 +15,9 @@ from urllib.parse import parse_qs, urlparse
 
 from bleak.exc import BleakCharacteristicNotFoundError, BleakDeviceNotFoundError
 
-from triki_calibration import CalibrationRecorder, CalibrationSession, DEFAULT_ACTIONS
-from triki_live import LiveGestureDetector
-from triki_probe import (
+from triki_control.calibration import CalibrationRecorder, CalibrationSession, DEFAULT_ACTIONS
+from triki_control.live import LiveGestureDetector
+from triki_control.probe import (
     GATT_PROFILE_NUS_CACHED,
     START_STREAM_COMMAND,
     UART_RX_UUID,
@@ -28,7 +28,7 @@ from triki_probe import (
     hex_bytes,
     iter_gatt_profiles,
 )
-from triki_protocol import MotionStreamParser
+from triki_control.protocol import MotionStreamParser
 
 try:
     from bleak import BleakClient

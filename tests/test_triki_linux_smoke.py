@@ -1,9 +1,9 @@
-import io
+﻿import io
 import json
 import unittest
 
-from triki_linux_smoke import build_smoke_report, main, probe_uinput_status
-from triki_key_emitter import KeyEmissionError
+from triki_control.linux_smoke import build_smoke_report, main, probe_uinput_status
+from triki_control.key_emitter import KeyEmissionError
 
 
 class FakeEmitter:

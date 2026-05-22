@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import asyncio
@@ -9,9 +9,9 @@ from pathlib import Path
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakCharacteristicNotFoundError, BleakDeviceNotFoundError
 
-from triki_battery import BATTERY_SERVICE_UUID
-from triki_protocol import MotionStreamParser
-from triki_recording import SampleRecorder, build_recording_paths
+from triki_control.battery import BATTERY_SERVICE_UUID
+from triki_control.protocol import MotionStreamParser
+from triki_control.recording import SampleRecorder, build_recording_paths
 
 try:
     from bleak import BleakClient, BleakScanner

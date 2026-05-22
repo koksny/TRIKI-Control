@@ -23,11 +23,11 @@ TRIKI BLE device
 
 The first production slice keeps this in Python:
 
-- `triki_protocol.py`: packet parser.
-- `triki_probe.py`: BLE discovery and Nordic UART constants.
-- `triki_live.py`: rolling-window live detector.
-- `triki_actions.py`: persistent action model and action executor.
-- `triki_app.py`: background app plus local config UI.
+- `src/triki_control/protocol.py`: packet parser.
+- `src/triki_control/probe.py`: BLE discovery and Nordic UART constants.
+- `src/triki_control/live.py`: rolling-window live detector.
+- `src/triki_control/actions.py`: persistent action model and action executor.
+- `src/triki_control/app.py`: background app plus local config UI.
 
 ## Desktop App Boundary
 

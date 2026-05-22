@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import asyncio
@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-from triki_actions import (
+from triki_control.actions import (
     ActionBinding,
     ActionExecutor,
     GESTURE_LABELS,
@@ -28,13 +28,13 @@ from triki_actions import (
     parse_macro_text,
     save_config,
 )
-from triki_calibration_server import ConnectionControl, EventBus, encode_sse, quiet_stream_errors
-from triki_battery import battery_snapshot, normalize_battery_percent
-from triki_key_emitter import NullKeyEmitter
-from triki_live import LiveGestureDetector
-from triki_play import BleCommandBridge, play_button_hint, run_ble_stream
-from triki_diagnostics import collect_diagnostics
-from triki_metadata import APP_CREATOR, APP_LICENSE, APP_NAME, APP_VERSION, APP_WEBSITE
+from triki_control.calibration_server import ConnectionControl, EventBus, encode_sse, quiet_stream_errors
+from triki_control.battery import battery_snapshot, normalize_battery_percent
+from triki_control.key_emitter import NullKeyEmitter
+from triki_control.live import LiveGestureDetector
+from triki_control.play import BleCommandBridge, play_button_hint, run_ble_stream
+from triki_control.diagnostics import collect_diagnostics
+from triki_control.metadata import APP_CREATOR, APP_LICENSE, APP_NAME, APP_VERSION, APP_WEBSITE
 
 
 _DEFAULT_CONSOLE_STREAM = object()
@@ -306,7 +306,7 @@ class AppSession:
 
 
 def _blocked_result(binding: ActionBinding):
-    from triki_actions import ActionResult
+    from triki_control.actions import ActionResult
 
     return ActionResult(False, binding.description, "output disabled")
 

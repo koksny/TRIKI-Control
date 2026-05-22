@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import asyncio
@@ -8,8 +8,8 @@ from collections import deque
 
 from bleak.exc import BleakDeviceNotFoundError
 
-from triki_classifier import GesturePrediction, classify_features, extract_features
-from triki_probe import (
+from triki_control.classifier import GesturePrediction, classify_features, extract_features
+from triki_control.probe import (
     GATT_PROFILES,
     START_STREAM_COMMAND,
     UART_RX_UUID,
@@ -21,7 +21,7 @@ from triki_probe import (
     iter_gatt_profiles,
     setup_disconnect_message,
 )
-from triki_protocol import MotionSample, MotionStreamParser
+from triki_control.protocol import MotionSample, MotionStreamParser
 
 try:
     from bleak import BleakClient

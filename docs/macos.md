@@ -50,7 +50,7 @@ From the repo root:
 
 ```bash
 source .venv/bin/activate
-python triki_diagnostics.py --json
+python -m triki_control.diagnostics --json
 ```
 
 Expected macOS diagnostics include:

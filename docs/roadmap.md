@@ -19,7 +19,7 @@ Scope:
 Current implementation entry point:
 
 ```powershell
-.\.venv\Scripts\python.exe triki_app.py
+.\.venv\Scripts\python.exe -m triki_control.app
 ```
 
 ## V1.1: Packaging

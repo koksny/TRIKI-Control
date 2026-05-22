@@ -1,10 +1,10 @@
-import unittest
+﻿import unittest
 import asyncio
 
-from triki_calibration_server import ConnectionControl, EventBus
-from triki_classifier import GesturePrediction, MotionFeatures
-from triki_key_emitter import KeyOutputController, NullKeyEmitter
-from triki_play import (
+from triki_control.calibration_server import ConnectionControl, EventBus
+from triki_control.classifier import GesturePrediction, MotionFeatures
+from triki_control.key_emitter import KeyOutputController, NullKeyEmitter
+from triki_control.play import (
     BATTERY_LEVEL_UUID,
     BleCommandBridge,
     LED_CHARACTERISTIC_UUID,

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import json
@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from threading import RLock
 
-from triki_classifier import GesturePrediction
-from triki_gestures import normalize_gesture_label
-from triki_protocol import MotionSample
+from triki_control.classifier import GesturePrediction
+from triki_control.gestures import normalize_gesture_label
+from triki_control.protocol import MotionSample
 
 
 @dataclass(frozen=True)

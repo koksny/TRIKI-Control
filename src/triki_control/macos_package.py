@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import os
@@ -23,7 +23,7 @@ def macos_release_name(version: str) -> str:
 
 
 def macos_info_plist() -> dict:
-    from triki_metadata import APP_VERSION
+    from triki_control.metadata import APP_VERSION
 
     return {
         "CFBundleIdentifier": "com.koksny.triki.control",
@@ -160,7 +160,7 @@ def _directory_archive_name(path: Path) -> str:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Package TRIKI Control for macOS.")
     parser.add_argument("--version", default="")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--release-dir", type=Path, default=Path("release"))
     parser.add_argument("--app-path", type=Path, default=Path("dist") / "TRIKI Control.app")
     return parser
@@ -170,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     version = args.version
     if not version:
-        from triki_metadata import APP_VERSION
+        from triki_control.metadata import APP_VERSION
 
         version = APP_VERSION
     archive_path = build_macos_release(

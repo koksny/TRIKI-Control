@@ -1,4 +1,4 @@
-import json
+﻿import json
 import tempfile
 import threading
 import unittest
@@ -7,8 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.request import urlopen
 
-from triki_actions import ActionBinding, ActionExecutor, ActionStep, TrikiConfig
-from triki_app import (
+from triki_control.actions import ActionBinding, ActionExecutor, ActionStep, TrikiConfig
+from triki_control.app import (
     APP_CREATOR,
     APP_LICENSE,
     APP_VERSION,
@@ -26,10 +26,10 @@ from triki_app import (
     run_webview_window,
     write_console_line,
 )
-from triki_calibration_server import ConnectionControl, EventBus
-from triki_classifier import GesturePrediction, MotionFeatures
-from triki_key_emitter import NullKeyEmitter
-from triki_key_emitter import KeyEmissionError
+from triki_control.calibration_server import ConnectionControl, EventBus
+from triki_control.classifier import GesturePrediction, MotionFeatures
+from triki_control.key_emitter import NullKeyEmitter
+from triki_control.key_emitter import KeyEmissionError
 
 
 def prediction(label: str) -> GesturePrediction:

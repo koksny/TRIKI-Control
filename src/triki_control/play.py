@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import asyncio
@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 from bleak.exc import BleakCharacteristicNotFoundError, BleakDeviceNotFoundError
 
-from triki_calibration_server import (
+from triki_control.calibration_server import (
     ConnectionControl,
     EventBus,
     encode_sse,
@@ -25,10 +25,10 @@ from triki_calibration_server import (
     session_exception_status_and_message,
     should_reconnect_after_session,
 )
-from triki_battery import BATTERY_LEVEL_UUID, battery_snapshot, normalize_battery_percent
-from triki_key_emitter import DEFAULT_KEYMAP, KeyOutputController, NullKeyEmitter
-from triki_live import LiveGestureDetector
-from triki_probe import (
+from triki_control.battery import BATTERY_LEVEL_UUID, battery_snapshot, normalize_battery_percent
+from triki_control.key_emitter import DEFAULT_KEYMAP, KeyOutputController, NullKeyEmitter
+from triki_control.live import LiveGestureDetector
+from triki_control.probe import (
     LED_CHARACTERISTIC_UUID,
     START_STREAM_COMMAND,
     UART_RX_UUID,
@@ -38,7 +38,7 @@ from triki_probe import (
     find_triki,
     hex_bytes,
 )
-from triki_protocol import MotionStreamParser
+from triki_control.protocol import MotionStreamParser
 
 try:
     from bleak import BleakClient

@@ -1,9 +1,9 @@
-import math
+﻿import math
 import unittest
 from unittest.mock import patch
 
-from triki_live import LiveGestureDetector, parse_args
-from triki_protocol import MotionSample
+from triki_control.live import LiveGestureDetector, parse_args
+from triki_control.protocol import MotionSample
 
 
 def sample(a=0, b=0, c=0, d=0, e=0, f=2050):
@@ -102,7 +102,7 @@ class LiveGestureDetectorTests(unittest.TestCase):
         self.assertEqual(detector.warmup_seconds, 0.2)
 
     def test_live_cli_defaults_match_responsive_detector_defaults(self):
-        with patch("sys.argv", ["triki_live.py"]):
+        with patch("sys.argv", ["live.py"]):
             args = parse_args()
 
         self.assertEqual(args.confirm_windows, 1)

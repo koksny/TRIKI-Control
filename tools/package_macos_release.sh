@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,7 +26,8 @@ if [[ "$BUILD" == "1" ]]; then
   PYTHON="$PYTHON" bash "$ROOT/tools/build_macos_app.sh"
 fi
 
-exec "$PYTHON" "$ROOT/triki_macos_package.py" \
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON" -m triki_control.macos_package \
   --root "$ROOT" \
   --release-dir "$ROOT/release" \
   --app-path "$ROOT/dist/TRIKI Control.app"

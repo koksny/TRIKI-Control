@@ -1,7 +1,7 @@
-import inspect
+﻿import inspect
 import unittest
 
-from triki_probe import (
+from triki_control.probe import (
     BATTERY_SERVICE_UUID,
     GATT_PROFILES,
     NUS_SERVICE_UUID,
@@ -32,7 +32,7 @@ class TrikiProbeTests(unittest.TestCase):
         self.assertIn("SCAN", activation_prompt_for_mode("scan"))
 
     def test_probe_signature_accepts_connect_mode(self):
-        from triki_probe import probe
+        from triki_control.probe import probe
 
         self.assertIn("connect_mode", inspect.signature(probe).parameters)
 
@@ -94,7 +94,7 @@ class TrikiProbeTests(unittest.TestCase):
         self.assertIn("nus-cached", message)
 
     def test_probe_signature_accepts_retry_delay(self):
-        from triki_probe import probe
+        from triki_control.probe import probe
 
         self.assertIn("retry_delay_seconds", inspect.signature(probe).parameters)
 

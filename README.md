@@ -48,7 +48,8 @@ Windows:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe triki_app.py
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m triki_control.app
 ```
 
 macOS/Linux:
@@ -56,7 +57,8 @@ macOS/Linux:
 ```bash
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python triki_app.py
+python -m pip install -e .
+python -m triki_control.app
 ```
 
 The app opens the local configuration UI. If it does not open automatically, use:
@@ -148,18 +150,13 @@ bash tools/package_linux_release.sh
 ```text
 TRIKI-Control/
 |-- docs/                         # Architecture, protocol, platform, release notes
+|-- src/
+|   `-- triki_control/             # Application package
 |-- tests/                        # Unit tests
 |-- tools/                        # Build and packaging scripts
-|-- triki_app.py                  # Background app and local UI
-|-- triki_probe.py                # BLE discovery and motion sample probe
-|-- triki_protocol.py             # Packet parser
-|-- triki_classifier.py           # Gesture classifier
-|-- triki_live.py                 # Rolling-window live detector
-|-- triki_actions.py              # Profiles, mappings, macros, executor
-|-- triki_key_emitter.py          # Windows, macOS, and Linux output backends
-|-- triki_diagnostics.py          # Environment diagnostics
 |-- requirements.txt              # Runtime dependencies
 |-- requirements-build.txt        # Build dependencies
+|-- pyproject.toml                # Python package metadata
 `-- README.md
 ```
 

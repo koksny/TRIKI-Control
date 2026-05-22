@@ -1,9 +1,9 @@
-import json
+﻿import json
 import asyncio
 import unittest
 
-from triki_calibration import CalibrationAction, CalibrationSession
-from triki_calibration_server import (
+from triki_control.calibration import CalibrationAction, CalibrationSession
+from triki_control.calibration_server import (
     build_arg_parser,
     build_html,
     ConnectionControl,
@@ -17,8 +17,8 @@ from triki_calibration_server import (
     iter_connection_targets,
     session_exception_status_and_message,
 )
-from triki_calibration_server import iter_connect_modes, should_reconnect_after_session
-from triki_calibration_server import quiet_stream_errors
+from triki_control.calibration_server import iter_connect_modes, should_reconnect_after_session
+from triki_control.calibration_server import quiet_stream_errors
 
 
 class CalibrationServerTests(unittest.TestCase):
