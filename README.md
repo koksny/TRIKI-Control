@@ -16,7 +16,7 @@ Screenshots and GIFs will be added before the first public release.
 
 TRIKI is a Bluetooth motion cap originally intended for Android. The device name is `Triki`, the model is `CAP001`, and the producer is Caps Apps. This project provides an independent desktop control app for Windows, macOS, and Linux, with a shared BLE parser, gesture classifier, local configuration UI, and platform-specific input output.
 
-The current app supports rotate, scrub, back-and-forth, stamp, and flip gestures. It does not try to emulate a gamepad or custom HID driver; the device does not expose enough continuous axes or buttons to justify that path. Unity integration is intended to be a separate project that can reuse the protocol and gesture notes from this repository.
+The current app supports rotate, scrub, back-and-forth, stamp, and flip gestures.
 
 ## Features
 
@@ -147,20 +147,20 @@ bash tools/package_linux_release.sh
 
 ```text
 TRIKI-Control/
-├── docs/                         # Architecture, protocol, platform, release notes
-├── tests/                        # Unit tests
-├── tools/                        # Build and packaging scripts
-├── triki_app.py                  # Background app and local UI
-├── triki_probe.py                # BLE discovery and motion sample probe
-├── triki_protocol.py             # Packet parser
-├── triki_classifier.py           # Gesture classifier
-├── triki_live.py                 # Rolling-window live detector
-├── triki_actions.py              # Profiles, mappings, macros, executor
-├── triki_key_emitter.py          # Windows, macOS, and Linux output backends
-├── triki_diagnostics.py          # Environment diagnostics
-├── requirements.txt              # Runtime dependencies
-├── requirements-build.txt        # Build dependencies
-└── README.md
+|-- docs/                         # Architecture, protocol, platform, release notes
+|-- tests/                        # Unit tests
+|-- tools/                        # Build and packaging scripts
+|-- triki_app.py                  # Background app and local UI
+|-- triki_probe.py                # BLE discovery and motion sample probe
+|-- triki_protocol.py             # Packet parser
+|-- triki_classifier.py           # Gesture classifier
+|-- triki_live.py                 # Rolling-window live detector
+|-- triki_actions.py              # Profiles, mappings, macros, executor
+|-- triki_key_emitter.py          # Windows, macOS, and Linux output backends
+|-- triki_diagnostics.py          # Environment diagnostics
+|-- requirements.txt              # Runtime dependencies
+|-- requirements-build.txt        # Build dependencies
+`-- README.md
 ```
 
 ## Platform Notes
@@ -194,6 +194,12 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 
 - Author: [Wojciech "Koksny" Górny](https://koksny.com)
 - Device: `Triki` / `CAP001`, produced by Caps Apps
+
+## Trademark and Affiliation
+
+TRIKI Control is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Caps Apps, Żabka, or their partners.
+
+TRIKI, Żabka, and related names and logos are trademarks or registered trademarks of their respective owners.
 
 ## License
 
