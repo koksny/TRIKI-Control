@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+.venv-*/
+venv/
+env/
+
+# Build outputs
+build/
+dist/
+release/
+*.egg-info/
+
+# Local runtime files
+output/
+extracted/
+*.log
+*.tmp
+*.zip
+*.tar.gz
+bugreport-*.zip
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local tooling caches
+.playwright-cli/
+tools/platform-tools/
+tools/platform-tools-*.zip
