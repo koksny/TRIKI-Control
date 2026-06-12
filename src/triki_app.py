@@ -2529,7 +2529,7 @@ def build_html() -> str:
     }
     blinkLoop();
 
-    /* MAIN ANIMATION LOOP — dual heartbeat (setInterval) + rAF so the cap keeps
+    /* MAIN ANIMATION LOOP: dual heartbeat (setInterval) + rAF so the cap keeps
        animating even when backgrounded / throttled inside the embedded WebView. */
     let lastTime = null;
     function tick() {

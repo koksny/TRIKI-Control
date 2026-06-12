@@ -77,7 +77,7 @@ def summarise(records: list[dict]) -> None:
             avg = round(sum(ds) / len(ds), 3)
             print(f"  {key}: {len(ds)} hold(s), avg {avg}s, all={ds}")
         if not durations and not taps:
-            print("  (no key output recorded — output was off or nothing emitted)")
+            print("  (no key output recorded, output was off or nothing emitted)")
     else:
         print("\n=== KEY OUTPUT TIMELINE ===\n  (no key events)")
 
