@@ -1,14 +1,11 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 
 import sys
-from pathlib import Path
+sys.path.insert(0, "src")
 
 from PyInstaller.utils.hooks import collect_all
 
-ROOT = Path.cwd()
-sys.path.insert(0, str(ROOT / "src"))
-
-from triki_control.macos_package import macos_info_plist
+from triki_macos_package import macos_info_plist
 
 
 datas = []
@@ -37,7 +34,7 @@ for package in (
 
 
 a = Analysis(
-    ["src/triki_control/desktop.py"],
+    ["src/triki_desktop.py"],
     pathex=["src"],
     binaries=binaries,
     datas=datas,
@@ -45,7 +42,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["android"],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )

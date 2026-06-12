@@ -1,6 +1,6 @@
 # BLE protocol notes
 
-Everything here was derived independently from observing the cap over standard Bluetooth — packet captures and GATT discovery — not from any official software. It's accurate enough to drive the device reliably; the exact physical meaning of a couple of fields is still best-effort.
+Everything here was derived independently from observing the cap over standard Bluetooth, from packet captures and GATT discovery, not from any official software. It is accurate enough to drive the device reliably; the exact physical meaning of a couple of fields is still best-effort.
 
 ## Device identity
 
@@ -32,16 +32,16 @@ Several start commands were observed in captures, differing in stream rate and a
 
 The little-endian field in the middle (`0x0034`, `0x0068`, `0x00d0`) appears to request the rate; the final byte appears to select a device-side input profile. TRIKI Control uses the **~53 Hz steering** command, which matches the official app's late-session steering capture and gives a clean, low-jitter stream for the motion engine.
 
-In practice delivery is **bursty**: notifications arrive in clumps, inter-sample gaps reach ~100 ms at the 99th percentile, and brief multi-second dropouts happen (frequently when a finger covers the antenna mid-motion). The engine is built to tolerate this — see [how-it-works.md](how-it-works.md).
+In practice delivery is **bursty**: notifications arrive in clumps, inter-sample gaps reach ~100 ms at the 99th percentile, and brief multi-second dropouts happen (frequently when a finger covers the antenna mid-motion). The engine is built to tolerate this. See [how-it-works.md](how-it-works.md).
 
 ## The six motion channels
 
-Each notification decodes (in `triki_protocol.py`) into **six signed channels**. The motion engine treats them as a 6-axis IMU:
+Each notification decodes (in `src/triki_protocol.py`) into **six signed channels**. The motion engine treats them as a 6-axis IMU:
 
-- `values[0..2]` — **gyroscope** (angular rate around the three axes).
-- `values[3..5]` — **accelerometer** (force along the three axes; gravity plus motion).
+- `values[0..2]`: **gyroscope** (angular rate around the three axes).
+- `values[3..5]`: **accelerometer** (force along the three axes; gravity plus motion).
 
-At rest, lying flat, the accelerometer reads roughly `(24, 0, -2050)` in raw units — the large negative `z` being "down." There is **no magnetometer**; the consequences of that absence are the whole subject of [how-it-works.md](how-it-works.md).
+At rest, lying flat, the accelerometer reads roughly `(24, 0, -2050)` in raw units, the large negative `z` being "down". There is **no magnetometer**; the consequences of that absence are the whole subject of [how-it-works.md](how-it-works.md), and they are why the cap's official games each stick to a single axis.
 
 The gyro bias is stable and device-specific (around `(12, -31, -22)` raw on the unit this was tuned on); the engine re-learns it live rather than hard-coding it, because the *first* packet after a connection can be an outlier that would otherwise poison the estimate.
 

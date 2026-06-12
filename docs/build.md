@@ -10,12 +10,19 @@ TRIKI Control is plain Python. You can run it straight from source, or build a s
 
 Runtime dependencies (`requirements.txt`):
 
-- `bleak` — cross-platform BLE.
-- `pywebview` — the desktop UI window.
-- `pystray` — tray icon in packaged builds.
-- `Pillow` — icon/asset handling.
+- `bleak` for cross-platform BLE.
+- `pywebview` for the desktop UI window.
+- `pystray` for the tray icon in packaged builds.
+- `Pillow` for icon/asset handling.
 
-On **Linux**, `pywebview` additionally needs a system GUI backend (PyGObject + WebKit2GTK, or PyQt + QtWebEngine) that pip cannot install — see [linux.md](linux.md).
+On **Linux**, `pywebview` additionally needs a system GUI backend (PyGObject + WebKit2GTK, or PyQt + QtWebEngine) that pip cannot install. See [linux.md](linux.md).
+
+## Layout
+
+The repository is intentionally flat *inside* a single source folder. Every application module is a top-level `triki_*.py` file under **`src/`**. The two files worth reading first:
+
+- `src/triki_app.py`: the BLE connection loop, the local server, and the entire embedded UI (HTML/CSS/JS).
+- `src/triki_motion_engine.py`: the Game-profile "tank" controller; most of the project's tuning lives here.
 
 ## Run from source
 
@@ -27,7 +34,7 @@ python -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe triki_app.py
+.\.venv\Scripts\python.exe src\triki_app.py
 ```
 
 **macOS / Linux:**
@@ -35,19 +42,14 @@ python -m venv .venv
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
-python triki_app.py
+python src/triki_app.py
 ```
 
-The app starts a local server on `http://127.0.0.1:8766/` and opens a window pointing at it. If the window doesn't appear (or you prefer a browser), open that URL yourself. `/debug` is the diagnostics page; `/diagnostics` is the raw JSON feed.
-
-The repo is intentionally **flat** — every module is a top-level `triki_*.py`. The two files worth reading first:
-
-- `triki_app.py` — the BLE connection loop, the local server, and the entire embedded UI (HTML/CSS/JS).
-- `triki_motion_engine.py` — the Game-profile "tank" controller; most of the project's tuning lives here.
+Running `src/triki_app.py` directly puts `src/` on Python's path automatically, so the `triki_*` modules resolve without any install step. The app starts a local server on `http://127.0.0.1:8766/` and opens a window pointing at it. If the window does not appear (or you prefer a browser), open that URL yourself. `/debug` is the diagnostics page; `/diagnostics` is the raw JSON feed.
 
 ## Build a standalone executable
 
-Builds are driven by **PyInstaller spec files** in the repo root — this is the reliable path on every platform. Install the build dependencies first:
+Builds are driven by **PyInstaller spec files** in the repo root, which is the reliable path on every platform. Install the build dependencies first:
 
 ```bash
 python -m pip install -r requirements-build.txt
@@ -61,7 +63,7 @@ Then build with the spec for your platform.
 .\.venv\Scripts\python.exe -m PyInstaller --noconfirm TRIKI-Control.spec
 ```
 
-This produces `dist\TRIKI-Control.exe` — a single file, no install. `TRIKI-Control-Debug.spec` builds the same app with a console window attached, which is handy when you want to watch the connection log live.
+This produces `dist\TRIKI-Control.exe`, a single file, no install. `TRIKI-Control-Debug.spec` builds the same app with a console window attached, which is handy when you want to watch the connection log live.
 
 > Build from a dedicated Windows virtualenv (e.g. `.venv-windows`) to keep build tooling out of your run environment. Calling PyInstaller on the spec directly, as above, is the dependable route.
 
@@ -71,15 +73,15 @@ This produces `dist\TRIKI-Control.exe` — a single file, no install. `TRIKI-Con
 python -m PyInstaller --noconfirm TRIKI-Control-macOS.spec
 ```
 
-This produces a `.app` bundle in `dist/` carrying the Bluetooth usage strings CoreBluetooth requires. Remember that keyboard output needs **Accessibility** permission granted to the built app (not to your terminal) in System Settings → Privacy & Security → Accessibility.
+This produces a `.app` bundle in `dist/` carrying the Bluetooth usage strings CoreBluetooth requires. Remember that keyboard output needs **Accessibility** permission granted to the built app (not to your terminal) in System Settings > Privacy & Security > Accessibility.
 
 ### Linux
 
-There's no single-file Linux executable — the WebKit/Qt GUI backend has to come from the system, so it can't be bundled. Run from source (above) after installing a backend per [linux.md](linux.md).
+There is no single-file Linux executable, because the WebKit/Qt GUI backend has to come from the system and cannot be bundled. Run from source (above) after installing a backend per [linux.md](linux.md).
 
 ## Regenerating the cap art
 
-The cap illustrations shown in the UI are embedded as data URIs in `triki_assets.py`. If you change the source PNGs in `assets/`, regenerate the module with:
+The cap illustrations shown in the UI are embedded as data URIs in `src/triki_assets.py`. If you change the source PNGs in `assets/`, regenerate the module with:
 
 ```bash
 python scripts/gen_triki_assets.py
@@ -92,4 +94,4 @@ python -m pip install pytest
 python -m pytest tests/
 ```
 
-Heads up: the test suite is mid-migration. A chunk of it still targets an earlier control scheme (a directional/WASD-style design that predates the rotation-invariant engine) and those cases fail by design until they're rewritten against the current engine. The protocol, action-mapping, and key-emitter tests are the trustworthy ones today.
+A `conftest.py` at the repo root puts `src/` on the path, so the tests `import triki_*` directly. Be aware that the suite is mid-migration: a chunk of it still targets an earlier control scheme (a directional/WASD-style design that predates the rotation-invariant engine) and those cases fail by design until they are rewritten against the current engine. The protocol, action-mapping, and key-emitter tests are the trustworthy ones today.

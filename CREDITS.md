@@ -1,6 +1,6 @@
 # Credits
 
-TRIKI Control was created by **Wojciech "Koksny" Górny** — [koksny.com](https://koksny.com).
+TRIKI Control was created by **Wojciech "Koksny" Górny**, [koksny.com](https://koksny.com).
 
 - **Device:** `Triki` / model `CAP001`, produced by Caps Apps, distributed by Żabka.
 - **License:** [MIT](LICENSE).
