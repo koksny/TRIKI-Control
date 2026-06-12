@@ -1,8 +1,11 @@
-﻿import unittest
+import unittest
 import ctypes
+import threading
+import time
 from unittest.mock import patch
 
-from triki_control.key_emitter import (
+from triki_key_emitter import (
+    DEFAULT_HOLD_MS,
     DEFAULT_KEYMAP,
     INPUT,
     KEYEVENTF_EXTENDEDKEY,
@@ -10,11 +13,13 @@ from triki_control.key_emitter import (
     KEYEVENTF_SCANCODE,
     EV_KEY,
     EV_SYN,
+    HoldKeyEmitter,
     KeyEmissionError,
     KeyOutputController,
     LazyKeyEmitter,
     LinuxUInputKeyEmitter,
     MacOSKeyEmitter,
+    MAX_HOLD_MS,
     NullKeyEmitter,
     UI_DEV_CREATE,
     UI_DEV_DESTROY,
@@ -410,7 +415,7 @@ class KeyEmitterTests(unittest.TestCase):
     def test_output_controller_defaults_to_platform_key_emitter_factory(self):
         emitter = NullKeyEmitter()
 
-        with patch("triki_control.key_emitter.create_default_key_emitter", return_value=emitter) as factory:
+        with patch("triki_key_emitter.create_default_key_emitter", return_value=emitter) as factory:
             controller = KeyOutputController(enabled=True)
             result = controller.handle_gesture("lift")
 
@@ -467,6 +472,255 @@ class KeyEmitterTests(unittest.TestCase):
         self.assertTrue(result.emitted)
         self.assertEqual(result.key_name, "d")
         self.assertEqual(emitter.pressed, ["d"])
+
+
+class ModifierKeyTests(unittest.TestCase):
+    def test_vk_for_modifier_keys(self):
+        self.assertEqual(vk_for_key("ctrl"), 0xA2)
+        self.assertEqual(vk_for_key("control"), 0xA2)
+        self.assertEqual(vk_for_key("shift"), 0xA0)
+        self.assertEqual(vk_for_key("alt"), 0xA4)
+
+    def test_scancode_for_modifier_keys(self):
+        self.assertEqual(scancode_for_key("ctrl"), 0x1D)
+        self.assertEqual(scancode_for_key("shift"), 0x2A)
+        self.assertEqual(scancode_for_key("alt"), 0x38)
+
+    def test_windows_emitter_uses_scancode_for_ctrl(self):
+        user32 = FakeUser32()
+        emitter = WindowsKeyEmitter(user32=user32)
+
+        emitter.press_key("ctrl")
+
+        down = user32.inputs[0].union.ki
+        up = user32.inputs[1].union.ki
+        self.assertEqual(down.wScan, 0x1D)
+        self.assertEqual(down.dwFlags, KEYEVENTF_SCANCODE)
+        self.assertEqual(up.dwFlags, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP)
+
+    def test_windows_emitter_marks_right_modifiers_as_extended_vk(self):
+        for name, vk in (("rctrl", 0xA3), ("ralt", 0xA5)):
+            user32 = FakeUser32()
+            emitter = WindowsKeyEmitter(user32=user32)
+            emitter.press_key(name)
+            down = user32.inputs[0].union.ki
+            up = user32.inputs[1].union.ki
+            self.assertEqual(down.wVk, vk)
+            self.assertEqual(down.wScan, 0)
+            self.assertEqual(down.dwFlags, KEYEVENTF_EXTENDEDKEY)
+            self.assertEqual(up.dwFlags, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP)
+
+    def test_windows_emitter_keeps_right_shift_on_scancode_path(self):
+        user32 = FakeUser32()
+        emitter = WindowsKeyEmitter(user32=user32)
+
+        emitter.press_key("rshift")
+
+        down = user32.inputs[0].union.ki
+        self.assertEqual(down.wScan, 0x36)
+        self.assertEqual(down.dwFlags, KEYEVENTF_SCANCODE)
+
+    def test_linux_and_macos_modifier_codes(self):
+        self.assertEqual(linux_evdev_code_for_key("ctrl"), 29)
+        self.assertEqual(macos_keycode_for_key("ctrl"), 59)
+
+
+class RecordingEmitter:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.pressed = []
+        self.downs = []
+        self.ups = []
+        self.closed = False
+
+    def press_key(self, key_name):
+        with self._lock:
+            self.pressed.append(key_name)
+
+    def key_down(self, key_name):
+        with self._lock:
+            self.downs.append(key_name)
+
+    def key_up(self, key_name):
+        with self._lock:
+            self.ups.append(key_name)
+
+    def close(self):
+        self.closed = True
+
+    def snapshot(self):
+        with self._lock:
+            return list(self.pressed), list(self.downs), list(self.ups)
+
+
+def _wait_until(predicate, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.005)
+    return predicate()
+
+
+class HoldKeyEmitterTests(unittest.TestCase):
+    def test_zero_hold_is_an_instant_tap(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=0)
+
+        emitter.press_key("up")
+
+        self.assertEqual(base.pressed, ["up"])
+        self.assertEqual(base.downs, [])
+        self.assertEqual(base.ups, [])
+
+    def test_clamps_hold_ms_to_max(self):
+        emitter = HoldKeyEmitter(RecordingEmitter(), hold_ms=999999)
+        self.assertEqual(emitter.hold_ms, MAX_HOLD_MS)
+
+    def test_hold_presses_down_immediately_then_releases(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=40)
+
+        emitter.press_key("up")
+
+        self.assertEqual(base.downs, ["up"])  # down is immediate, non-blocking
+        self.assertEqual(base.pressed, [])  # never a tap while holding
+        emitter.set_hold_ms(0)  # deterministic release, no timer race
+        self.assertEqual(base.ups, ["up"])
+        emitter.close()
+
+    def test_repeat_extends_hold_without_new_key_down(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=60)
+
+        emitter.press_key("up")
+        emitter.press_key("up")
+        emitter.press_key("up")
+
+        # A sustained gesture re-fires, but the key must stay logically down:
+        # exactly one key_down and exactly one key_up on release.
+        self.assertEqual(base.downs, ["up"])
+        self.assertEqual(base.ups, [])
+        emitter.set_hold_ms(0)  # deterministic release, no timer race
+        self.assertEqual(base.ups, ["up"])
+        emitter.close()
+
+    def test_distinct_keys_held_concurrently(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=40)
+
+        emitter.press_key("up")
+        emitter.press_key("ctrl")
+
+        self.assertEqual(sorted(base.downs), ["ctrl", "up"])
+        emitter.set_hold_ms(0)  # deterministic release, no timer race
+        self.assertEqual(sorted(base.ups), ["ctrl", "up"])
+        emitter.close()
+
+    def test_timed_worker_eventually_releases(self):
+        # Timing-sensitive: keeps coverage of the real auto-release path driven
+        # by the background worker's deadline (rather than a forced set_hold_ms).
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=40)
+
+        emitter.press_key("up")
+
+        self.assertEqual(base.downs, ["up"])
+        self.assertTrue(_wait_until(lambda: base.snapshot()[2] == ["up"]))
+        self.assertEqual(base.pressed, [])
+        emitter.close()
+
+    def test_set_hold_ms_zero_releases_held_keys(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=5000)
+
+        emitter.press_key("up")
+        self.assertEqual(base.downs, ["up"])
+        emitter.set_hold_ms(0)
+
+        self.assertEqual(base.ups, ["up"])
+        # Now behaves as a plain tap.
+        emitter.press_key("down")
+        self.assertEqual(base.pressed, ["down"])
+        emitter.close()
+
+    def test_set_hold_ms_reenables_hold_from_zero(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=0)
+
+        emitter.press_key("up")
+        self.assertEqual(base.pressed, ["up"])  # zero hold is a plain tap
+        self.assertEqual(base.downs, [])
+
+        emitter.set_hold_ms(400)
+        emitter.press_key("down")
+        self.assertEqual(base.downs, ["down"])  # hold path re-enabled
+        emitter.close()
+
+    def test_set_hold_ms_lower_releases_on_new_deadline(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=5000)
+
+        emitter.press_key("up")
+        self.assertEqual(base.downs, ["up"])
+        self.assertEqual(base.ups, [])
+
+        # Shortening the hold takes effect on the next deadline refresh: a repeat
+        # of the held gesture re-arms the key on the new (much sooner) deadline,
+        # so the worker releases it shortly after — still exactly one down/up.
+        emitter.set_hold_ms(40)
+        emitter.press_key("up")
+        self.assertEqual(base.downs, ["up"])
+        self.assertTrue(_wait_until(lambda: base.snapshot()[2] == ["up"]))
+        emitter.close()
+
+    def test_close_releases_held_keys_and_base(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=5000)
+
+        emitter.press_key("up")
+        emitter.close()
+
+        self.assertEqual(base.ups, ["up"])
+        self.assertTrue(base.closed)
+
+    def test_observer_reports_tap_down_extend_and_up(self):
+        base = RecordingEmitter()
+        events = []
+        emitter = HoldKeyEmitter(base, hold_ms=0, observer=lambda rec: events.append(rec))
+
+        emitter.press_key("up")  # hold_ms == 0 -> instant tap
+        self.assertEqual(events[-1]["action"], "tap")
+        self.assertEqual(events[-1]["key"], "up")
+
+        emitter.set_hold_ms(400)
+        emitter.press_key("up")  # new hold -> down
+        self.assertEqual(events[-1]["action"], "down")
+        self.assertEqual(events[-1]["hold_ms"], 400)
+        emitter.press_key("up")  # same key again -> extend
+        self.assertEqual(events[-1]["action"], "extend")
+
+        emitter.set_hold_ms(0)  # releases the held key -> up
+        self.assertTrue(any(e["action"] == "up" and e["key"] == "up" for e in events))
+        emitter.close()
+
+    def test_close_stops_worker_thread(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=5000)
+
+        # Identify THIS emitter's worker by diffing the live 'triki-hold' set, so
+        # the assertion is unaffected by parked workers other tests may leave.
+        before = {t for t in threading.enumerate() if t.name == "triki-hold"}
+        emitter.press_key("up")
+        spawned = [
+            t for t in threading.enumerate() if t.name == "triki-hold" and t not in before
+        ]
+        self.assertEqual(len(spawned), 1)
+        worker = spawned[0]
+
+        emitter.close()
+
+        self.assertFalse(worker.is_alive())
 
 
 if __name__ == "__main__":

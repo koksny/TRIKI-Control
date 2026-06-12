@@ -1,21 +1,25 @@
-﻿import unittest
+import unittest
 import asyncio
+import json
 
-from triki_control.calibration_server import ConnectionControl, EventBus
-from triki_control.classifier import GesturePrediction, MotionFeatures
-from triki_control.key_emitter import KeyOutputController, NullKeyEmitter
-from triki_control.play import (
+from triki_calibration_server import ConnectionControl, EventBus
+from triki_classifier import GesturePrediction, MotionFeatures
+from triki_key_emitter import KeyOutputController, NullKeyEmitter
+from triki_play import (
     BATTERY_LEVEL_UUID,
+    MOTION_PUBLISH_INTERVAL_SECONDS,
     BleCommandBridge,
     LED_CHARACTERISTIC_UUID,
     PlaySession,
     build_html,
+    build_motion_event,
     handle_control,
     parse_args,
     play_button_hint,
     publish_battery_level,
     write_led_state,
 )
+from triki_protocol import MotionSample
 
 
 def prediction(label: str, confidence: float = 0.88) -> GesturePrediction:
@@ -234,6 +238,17 @@ class PlayModeTests(unittest.TestCase):
         self.assertIn("Focus the game window after enabling output", html)
         self.assertIn("/control?action=", html)
 
+    def test_html_key_dropdown_covers_default_keymap_and_modifiers(self):
+        html = build_html()
+
+        # The play-mode default keymap maps scrub-cw/scrub-ccw to page-down/page-up,
+        # so the dropdown must offer those or those default rows render as
+        # 'debug only' and risk an accidental overwrite.
+        self.assertIn("'page-up'", html)
+        self.assertIn("'page-down'", html)
+        # Modifier keys enable Doom Fire/Use parity in play mode.
+        self.assertIn("'ctrl'", html)
+
     def test_parse_args_defaults_to_safe_play_mode(self):
         args = parse_args([])
 
@@ -245,6 +260,72 @@ class PlayModeTests(unittest.TestCase):
         self.assertEqual(args.min_samples, 6)
         self.assertEqual(args.repeat_seconds, 0.3)
         self.assertEqual(args.warmup_seconds, 0.05)
+
+
+class LiveMotionEventTests(unittest.TestCase):
+    def test_build_motion_event_carries_six_axes_and_derived_hints(self):
+        sample = MotionSample(packet_id=7, values=(30, 40, 120, -50, 60, -2050))
+
+        event = build_motion_event(sample.values, elapsed_seconds=1.23456)
+
+        self.assertEqual(event["type"], "motion")
+        # All six raw axes are streamed (a,b,c gyro / d,e,f accel).
+        self.assertEqual(event["values"], [30, 40, 120, -50, 60, -2050])
+        # rotation hint = gyro-c (values[2]) = the cap-spin axis.
+        self.assertEqual(event["rotation"], 120)
+        # energy = gyro vector magnitude sqrt(30^2 + 40^2 + 120^2) = 130.0.
+        self.assertEqual(event["energy"], 130.0)
+        self.assertEqual(event["elapsed_seconds"], round(1.23456, 4))
+
+    def test_build_motion_event_is_jsonable_and_uses_plain_ints(self):
+        # bleak hands us a numpy-free tuple, but guard against non-list/int leaks
+        # that would break encode_sse(json.dumps).
+        event = build_motion_event((1, 2, 3, 4, 5, 6), elapsed_seconds=0.0)
+
+        self.assertIsInstance(event["values"], list)
+        self.assertTrue(all(isinstance(v, int) for v in event["values"]))
+        json.dumps(event)
+
+    def test_motion_publish_is_throttled_independently_of_sample_gate(self):
+        # Replicate the on_notify gate: a 'motion' event fires whenever
+        # elapsed advances by >= MOTION_PUBLISH_INTERVAL_SECONDS, regardless of
+        # the slower 0.25s sample/state gate. We mock the bus and the clock so
+        # the test needs no hardware, BLE, or real time.
+        published = []
+        last_motion_publish = 0.0
+        last_sample_publish = 0.0
+
+        # ~15 Hz cap stream over one second of samples arriving at ~50 Hz.
+        for step in range(50):
+            elapsed = step * 0.02
+            if elapsed - last_motion_publish >= MOTION_PUBLISH_INTERVAL_SECONDS:
+                published.append(("motion", elapsed))
+                last_motion_publish = elapsed
+            if elapsed - last_sample_publish >= 0.25:
+                published.append(("sample", elapsed))
+                last_sample_publish = elapsed
+
+        motion_times = [t for kind, t in published if kind == "motion"]
+        sample_times = [t for kind, t in published if kind == "sample"]
+
+        # Motion clearly outpaces the slower 0.25s sample/state gate: ~4
+        # sample-gate firings vs ~12 motion firings over the same second.
+        self.assertGreater(len(motion_times), len(sample_times))
+        self.assertLessEqual(len(sample_times), 4)
+        # Samples arriving at ~50 Hz (0.02s) gate-snap to every 4th sample
+        # (0.08s) because 0.06s < 0.08s, so ~12 motion events fill ~1s without
+        # the per-notify flood of one event per sample (which would be 50).
+        self.assertGreaterEqual(len(motion_times), 12)
+        self.assertLessEqual(len(motion_times), 15)
+        self.assertLess(len(motion_times), 50)
+        # Every gap between consecutive motion publishes respects the interval.
+        gaps = [b - a for a, b in zip(motion_times, motion_times[1:])]
+        for gap in gaps:
+            self.assertGreaterEqual(gap + 1e-9, MOTION_PUBLISH_INTERVAL_SECONDS)
+
+    def test_motion_interval_targets_about_15hz(self):
+        # ~15 Hz keeps the WebView animation smooth without flooding SSE.
+        self.assertAlmostEqual(1.0 / MOTION_PUBLISH_INTERVAL_SECONDS, 15.0, places=6)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
-﻿import math
+import math
 import unittest
 from unittest.mock import patch
 
-from triki_control.live import LiveGestureDetector, parse_args
-from triki_control.protocol import MotionSample
+from triki_live import LiveGestureDetector, parse_args
+from triki_protocol import MotionSample
 
 
 def sample(a=0, b=0, c=0, d=0, e=0, f=2050):
@@ -102,7 +102,7 @@ class LiveGestureDetectorTests(unittest.TestCase):
         self.assertEqual(detector.warmup_seconds, 0.2)
 
     def test_live_cli_defaults_match_responsive_detector_defaults(self):
-        with patch("sys.argv", ["live.py"]):
+        with patch("sys.argv", ["triki_live.py"]):
             args = parse_args()
 
         self.assertEqual(args.confirm_windows, 1)
@@ -287,6 +287,41 @@ class LiveGestureDetectorTests(unittest.TestCase):
         self.assertEqual(first_labels.count("flip-over"), 1)
         self.assertNotIn("flip-over", quiet_labels)
         self.assertEqual(second_labels.count("flip-over"), 1)
+
+
+class DetectorObserverTests(unittest.TestCase):
+    def test_observer_reports_every_sample_with_outcome_and_values(self):
+        seen = []
+        detector = LiveGestureDetector(
+            warmup_seconds=0.0,
+            min_samples=3,
+            observer=lambda record: seen.append(record),
+        )
+        # Feed 5 "still" samples (near gravity, no motion). The first two buffer,
+        # then "still" classifies and is suppressed.
+        for index in range(5):
+            detector.add_sample(index * 0.05, sample())
+
+        self.assertEqual(len(seen), 5)
+        outcomes = [record["outcome"] for record in seen]
+        self.assertEqual(outcomes[0], "buffering")
+        self.assertIn("suppressed", outcomes)
+        self.assertTrue(all(len(record["values"]) == 6 for record in seen))
+
+    def test_observer_does_not_change_emission_behaviour(self):
+        # Same input with and without observer yields identical return values.
+        without = LiveGestureDetector(warmup_seconds=0.0, min_samples=3)
+        captured = []
+        with_obs = LiveGestureDetector(
+            warmup_seconds=0.0, min_samples=3, observer=lambda r: captured.append(r)
+        )
+        results_a, results_b = [], []
+        for index in range(6):
+            s = sample(c=900)
+            results_a.append(without.add_sample(index * 0.05, s) is not None)
+            results_b.append(with_obs.add_sample(index * 0.05, s) is not None)
+        self.assertEqual(results_a, results_b)
+        self.assertEqual(len(captured), 6)
 
 
 if __name__ == "__main__":

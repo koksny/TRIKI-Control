@@ -1,9 +1,9 @@
-﻿import tarfile
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 
-from triki_control.linux_package import build_linux_release, linux_release_name
+from triki_linux_package import build_linux_release, linux_release_name
 
 
 class TrikiLinuxPackageTests(unittest.TestCase):
@@ -27,11 +27,10 @@ class TrikiLinuxPackageTests(unittest.TestCase):
                 names = set(tar.getnames())
                 prefix = "TRIKI-Control-0.1.0-test-linux/"
                 self.assertIn(prefix + "triki-control", names)
-                self.assertIn(prefix + "src/triki_control/app.py", names)
-                self.assertIn(prefix + "src/triki_control/linux_smoke.py", names)
-                self.assertIn(prefix + "src/triki_control/diagnostics.py", names)
-                self.assertIn(prefix + "src/triki_control/metadata.py", names)
-                self.assertIn(prefix + "pyproject.toml", names)
+                self.assertIn(prefix + "triki_app.py", names)
+                self.assertIn(prefix + "triki_linux_smoke.py", names)
+                self.assertIn(prefix + "triki_diagnostics.py", names)
+                self.assertIn(prefix + "triki_metadata.py", names)
                 self.assertIn(prefix + "requirements.txt", names)
                 self.assertIn(prefix + "README.md", names)
                 self.assertIn(prefix + "CREDITS.md", names)

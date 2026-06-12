@@ -1,20 +1,34 @@
-﻿import json
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from triki_control.actions import (
+from triki_actions import (
+    BUILTIN_PROFILE_NAMES,
+    CONFIG_VERSION,
+    DEFAULT_ENGINE,
+    DEFAULT_PROFILE_NAME,
+    ENGINE_CLASSIFIER,
+    ENGINE_MOTION,
+    GAME_PROFILE_NAME,
+    MAX_MACRO_DELAY_MS,
+    MOTION_PROFILE_NAME,
+    MUSIC_PROFILE_NAME,
     ActionBinding,
     ActionExecutor,
     ActionStep,
     TrikiConfig,
     default_action_map,
     default_profile_map,
+    engine_for_profile,
     load_config,
+    normalize_engine,
+    normalize_hold_ms,
     parse_macro_text,
+    remap_legacy_profile_name,
     save_config,
 )
-from triki_control.key_emitter import KeyEmissionError, NullKeyEmitter, vk_for_key
+from triki_key_emitter import KeyEmissionError, NullKeyEmitter, vk_for_key
 
 
 class FailingEmitter:
@@ -24,46 +38,75 @@ class FailingEmitter:
 
 class TrikiActionTests(unittest.TestCase):
     def test_default_actions_cover_playable_gestures(self):
+        # default_action_map() is the Game fallback: Doom-default-bound keys.
         actions = default_action_map()
 
         self.assertEqual(actions["rotate-cw"].key_name, "right")
         self.assertEqual(actions["rotate-ccw"].key_name, "left")
-        self.assertEqual(actions["scrub-cw"].key_name, "page-down")
-        self.assertEqual(actions["scrub-ccw"].key_name, "page-up")
-        self.assertEqual(actions["lift"].key_name, "enter")
-        self.assertEqual(actions["flip-over"].key_name, "space")
-        self.assertEqual(actions["back-forth"].key_name, "escape")
+        self.assertEqual(actions["scrub-cw"].key_name, "up")
+        self.assertEqual(actions["scrub-ccw"].key_name, "down")
+        self.assertEqual(actions["lift"].key_name, "ctrl")  # STAMP = FIRE
+        self.assertEqual(actions["flip-over"].key_name, ".")  # strafe right
+        self.assertEqual(actions["back-forth"].key_name, "space")  # USE
         self.assertNotIn("swirl-cw", actions)
         self.assertNotIn("shake", actions)
 
-    def test_default_profiles_cover_common_use_cases(self):
+    def test_exactly_two_builtin_profiles_game_and_music(self):
         profiles = default_profile_map()
 
-        self.assertEqual(list(profiles.keys()), ["Default", "WASD Game", "Media", "Presentation", "Which Sausage, Mate?"])
-        self.assertEqual(profiles["Default"]["rotate-cw"].key_name, "right")
-        self.assertEqual(profiles["WASD Game"]["rotate-cw"].key_name, "d")
-        self.assertEqual(profiles["WASD Game"]["rotate-ccw"].key_name, "a")
-        self.assertEqual(profiles["WASD Game"]["scrub-cw"].key_name, "w")
-        self.assertEqual(profiles["WASD Game"]["scrub-ccw"].key_name, "s")
-        self.assertEqual(profiles["WASD Game"]["lift"].key_name, "w")
-        self.assertEqual(profiles["Media"]["rotate-cw"].key_name, "volume-up")
-        self.assertEqual(profiles["Media"]["scrub-cw"].key_name, "media-next")
-        self.assertEqual(profiles["Presentation"]["rotate-ccw"].key_name, "left")
-        self.assertEqual(profiles["Presentation"]["scrub-cw"].type, "disabled")
-        self.assertEqual(profiles["Which Sausage, Mate?"]["rotate-cw"].key_name, "right")
-        self.assertEqual(profiles["Which Sausage, Mate?"]["rotate-ccw"].key_name, "left")
-        self.assertEqual(profiles["Which Sausage, Mate?"]["scrub-cw"].key_name, "=")
-        self.assertEqual(profiles["Which Sausage, Mate?"]["scrub-ccw"].key_name, "z")
-        self.assertEqual(profiles["Which Sausage, Mate?"]["back-forth"].key_name, "backspace")
-        self.assertEqual(profiles["Which Sausage, Mate?"]["lift"].key_name, "enter")
-        self.assertEqual(profiles["Which Sausage, Mate?"]["flip-over"].key_name, "space")
+        # EXACTLY two built-ins, in order: Game (default) then Music.
+        self.assertEqual(list(profiles.keys()), ["Game", "Music"])
+        self.assertEqual(set(profiles.keys()), set(BUILTIN_PROFILE_NAMES))
+        self.assertEqual(DEFAULT_PROFILE_NAME, "Game")
+        # No legacy profile survives.
+        for gone in (
+            "Default",
+            "WASD Game",
+            "Presentation",
+            "Which Sausage, Mate?",
+            "Doom",
+            "Doom Motion",
+            "Doom / Steering",
+            "Experimental Pointer",
+            "Media",
+        ):
+            self.assertNotIn(gone, profiles)
 
-    def test_empty_config_starts_with_default_profile_set(self):
+    def test_game_profile_uses_doom_default_bound_keys(self):
+        game = default_profile_map()["Game"]
+
+        # The Game profile is keyed by the FIRST-CLASS motion controls (TILT is its
+        # own four-axis input). Doom defaults: turn=arrows, tilt fwd/back=up/down,
+        # tilt strafe=,/. , fire=ctrl.
+        self.assertEqual(game["turn-left"].key_name, "left")
+        self.assertEqual(game["turn-right"].key_name, "right")
+        self.assertEqual(game["tilt-forward"].key_name, "up")
+        self.assertEqual(game["tilt-back"].key_name, "down")
+        self.assertEqual(game["tilt-left"].key_name, ",")
+        self.assertEqual(game["tilt-right"].key_name, ".")
+        self.assertEqual(game["fire"].key_name, "ctrl")
+        # The dead discrete overload is gone: no scrub/flip rows in Game.
+        self.assertNotIn("scrub-cw", game)
+        self.assertNotIn("flip-over", game)
+
+    def test_music_profile_maps_media_and_volume(self):
+        music = default_profile_map()["Music"]
+
+        self.assertEqual(music["rotate-cw"].key_name, "volume-up")
+        self.assertEqual(music["rotate-ccw"].key_name, "volume-down")
+        self.assertEqual(music["scrub-cw"].key_name, "media-next")
+        self.assertEqual(music["scrub-ccw"].key_name, "media-prev")
+        self.assertEqual(music["back-forth"].key_name, "media-play-pause")
+        self.assertEqual(music["lift"].key_name, "media-play-pause")
+        self.assertEqual(music["flip-over"].key_name, "volume-mute")
+
+    def test_empty_config_starts_with_two_profiles_active_game(self):
         config = TrikiConfig().merged_with_defaults()
 
-        self.assertEqual(config.active_profile, "Default")
-        self.assertEqual(list(config.profiles.keys()), ["Default", "WASD Game", "Media", "Presentation", "Which Sausage, Mate?"])
-        self.assertEqual(config.actions["rotate-cw"].key_name, "right")
+        self.assertEqual(config.active_profile, "Game")
+        self.assertEqual(list(config.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(config.engine, ENGINE_MOTION)
+        self.assertEqual(config.actions["turn-right"].key_name, "right")
 
     def test_media_keys_are_supported_as_action_targets(self):
         self.assertEqual(vk_for_key("volume-up"), 0xAF)
@@ -143,12 +186,14 @@ class TrikiActionTests(unittest.TestCase):
             raw = json.loads(path.read_text(encoding="utf-8"))
             loaded = load_config(path)
 
-        self.assertEqual(raw["version"], 5)
+        self.assertEqual(raw["version"], CONFIG_VERSION)
         self.assertTrue(loaded.output_enabled)
-        self.assertEqual(loaded.actions["rotate-cw"].key_name, "right")
-        self.assertEqual(loaded.actions["back-forth"].steps[2].key_name, "enter")
+        # The collapse discards the stored top-level actions (old discrete labels)
+        # and ships the fresh first-class Game built-in (active profile -> Game).
+        self.assertEqual(loaded.actions["turn-right"].key_name, "right")
+        self.assertEqual(loaded.active_profile, "Game")
 
-    def test_load_config_merges_missing_defaults(self):
+    def test_load_config_collapses_to_two_profiles(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
             path.write_text(
@@ -158,21 +203,22 @@ class TrikiActionTests(unittest.TestCase):
 
             loaded = load_config(path)
 
-        self.assertEqual(loaded.actions["back-forth"].type, "disabled")
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
         self.assertNotIn("shake", loaded.actions)
-        self.assertEqual(loaded.actions["rotate-cw"].key_name, "right")
+        self.assertEqual(loaded.actions["turn-right"].key_name, "right")
 
-    def test_config_round_trips_named_profiles_and_active_profile(self):
+    def test_config_keeps_custom_profiles_alongside_two_builtins(self):
+        # Custom (user-created) profiles survive the collapse; the two built-ins are
+        # always added. A custom active profile stays active.
         config = TrikiConfig(
             profiles={
                 "Desktop": {"rotate-cw": ActionBinding.key("right")},
-                "Game": {
+                "My Doom": {
                     "rotate-cw": ActionBinding.key("d"),
-                    "rotate-ccw": ActionBinding.key("a"),
                     "lift": ActionBinding.key("w"),
                 },
             },
-            active_profile="Game",
+            active_profile="My Doom",
             output_enabled=True,
         ).merged_with_defaults()
 
@@ -182,15 +228,83 @@ class TrikiActionTests(unittest.TestCase):
             raw = json.loads(path.read_text(encoding="utf-8"))
             loaded = load_config(path)
 
-        self.assertEqual(raw["version"], 5)
-        self.assertEqual(raw["active_profile"], "Game")
-        self.assertIn("Desktop", raw["profiles"])
+        self.assertEqual(raw["version"], CONFIG_VERSION)
+        self.assertEqual(sorted(raw["profiles"].keys()), ["Desktop", "Game", "Music", "My Doom"])
+        # The two built-ins always exist.
+        self.assertIn("Game", loaded.profiles)
+        self.assertIn("Music", loaded.profiles)
         self.assertTrue(loaded.output_enabled)
-        self.assertEqual(loaded.active_profile, "Game")
+        self.assertEqual(loaded.active_profile, "My Doom")
         self.assertEqual(loaded.actions["rotate-cw"].key_name, "d")
-        self.assertEqual(loaded.profiles["Desktop"]["rotate-cw"].key_name, "right")
 
-    def test_legacy_config_actions_become_default_profile_and_presets(self):
+    def test_legacy_v7_nine_profile_config_collapses_to_two(self):
+        # The real on-disk world: a v7 config with the nine historical profiles and
+        # active='WASD Game'. It must collapse to EXACTLY {Game, Music}, remap the
+        # active profile to Game, derive engine='motion', and bump version to 9.
+        nine = {
+            name: {"rotate-cw": {"type": "key", "key": "right"}}
+            for name in (
+                "Default",
+                "WASD Game",
+                "Media",
+                "Presentation",
+                "Which Sausage, Mate?",
+                "Doom",
+                "Doom Motion",
+                "Doom / Steering",
+                "Experimental Pointer",
+            )
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 7,
+                        "active_profile": "WASD Game",
+                        "engine": "classifier",
+                        "profiles": nine,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = load_config(path)
+
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(loaded.active_profile, "Game")
+        self.assertEqual(loaded.engine, ENGINE_MOTION)
+        self.assertEqual(loaded.version, CONFIG_VERSION)
+        # The deleted profiles do NOT survive.
+        self.assertNotIn("Experimental Pointer", loaded.profiles)
+        self.assertNotIn("Doom / Steering", loaded.profiles)
+        self.assertNotIn("Doom Motion", loaded.profiles)
+        # Game ships its fresh first-class defaults (not the stored 'right' on every
+        # row); the old discrete labels never leak into the motion vocabulary.
+        self.assertEqual(loaded.profiles["Game"]["fire"].key_name, "ctrl")
+        self.assertEqual(loaded.profiles["Game"]["tilt-forward"].key_name, "up")
+
+    def test_legacy_active_media_remaps_to_music(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 7,
+                        "active_profile": "Media",
+                        "profiles": {"Media": {"lift": {"type": "key", "key": "media-play-pause"}}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = load_config(path)
+
+        self.assertEqual(loaded.active_profile, "Music")
+        self.assertEqual(loaded.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+
+    def test_legacy_config_actions_only_collapses_to_game(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
             path.write_text(
@@ -208,75 +322,73 @@ class TrikiActionTests(unittest.TestCase):
 
             loaded = load_config(path)
 
-        self.assertEqual(loaded.active_profile, "Default")
-        self.assertEqual(loaded.actions["rotate-cw"].key_name, "d")
-        self.assertEqual(loaded.profiles["Default"]["rotate-ccw"].key_name, "a")
-        self.assertEqual(loaded.profiles["WASD Game"]["rotate-cw"].key_name, "d")
-        self.assertEqual(loaded.profiles["WASD Game"]["scrub-cw"].key_name, "w")
-        self.assertEqual(loaded.profiles["Media"]["rotate-cw"].key_name, "volume-up")
-        self.assertEqual(loaded.profiles["Which Sausage, Mate?"]["scrub-cw"].key_name, "=")
+        self.assertEqual(loaded.active_profile, "Game")
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        # Fresh first-class Game defaults, not the stored legacy actions.
+        self.assertEqual(loaded.actions["turn-right"].key_name, "right")
 
-    def test_version_four_builtin_profiles_are_migrated_to_new_defaults(self):
+
+class RemapLegacyProfileNameTests(unittest.TestCase):
+    def test_builtins_pass_through(self):
+        self.assertEqual(remap_legacy_profile_name("Game"), "Game")
+        self.assertEqual(remap_legacy_profile_name("Music"), "Music")
+
+    def test_media_maps_to_music(self):
+        self.assertEqual(remap_legacy_profile_name("Media"), "Music")
+        self.assertEqual(remap_legacy_profile_name("media"), "Music")
+
+    def test_every_other_legacy_name_maps_to_game(self):
+        for legacy in (
+            "Default",
+            "WASD Game",
+            "Presentation",
+            "Which Sausage, Mate?",
+            "Doom",
+            "Doom Motion",
+            "Doom / Steering",
+            "Experimental Pointer",
+            "totally unknown",
+        ):
+            self.assertEqual(remap_legacy_profile_name(legacy), "Game")
+
+
+class HoldMsConfigTests(unittest.TestCase):
+    def test_normalize_hold_ms_clamps_and_defaults(self):
+        self.assertEqual(normalize_hold_ms(0), 0)
+        self.assertEqual(normalize_hold_ms(400), 400)
+        self.assertEqual(normalize_hold_ms(-50), 0)
+        self.assertEqual(normalize_hold_ms(999999), 2000)
+        self.assertEqual(normalize_hold_ms("nonsense"), 0)
+
+    def test_hold_ms_round_trips_through_config(self):
+        config = TrikiConfig(hold_ms=350).merged_with_defaults()
+
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "version": 4,
-                        "active_profile": "WASD Game",
-                        "profiles": {
-                            "Default": {
-                                "rotate-cw": {"type": "key", "key": "right"},
-                                "rotate-ccw": {"type": "key", "key": "left"},
-                                "scrub-cw": {"type": "key", "key": "right"},
-                                "scrub-ccw": {"type": "key", "key": "left"},
-                                "back-forth": {"type": "key", "key": "escape"},
-                                "lift": {"type": "key", "key": "enter"},
-                                "flip-over": {"type": "key", "key": "space"},
-                            },
-                            "WASD Game": {
-                                "rotate-cw": {"type": "key", "key": "d"},
-                                "rotate-ccw": {"type": "key", "key": "a"},
-                                "scrub-cw": {"type": "key", "key": "d"},
-                                "scrub-ccw": {"type": "key", "key": "a"},
-                                "back-forth": {"type": "key", "key": "escape"},
-                                "lift": {"type": "key", "key": "w"},
-                                "flip-over": {"type": "key", "key": "space"},
-                            },
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
+            save_config(path, config)
+            raw = json.loads(path.read_text(encoding="utf-8"))
             loaded = load_config(path)
 
-        self.assertEqual(loaded.version, 5)
-        self.assertEqual(loaded.active_profile, "WASD Game")
-        self.assertEqual(loaded.actions["scrub-cw"].key_name, "w")
-        self.assertEqual(loaded.actions["scrub-ccw"].key_name, "s")
-        self.assertEqual(loaded.profiles["Default"]["scrub-cw"].key_name, "page-down")
-        self.assertEqual(loaded.profiles["Default"]["scrub-ccw"].key_name, "page-up")
-        self.assertIn("Which Sausage, Mate?", loaded.profiles)
+        self.assertEqual(raw["hold_ms"], 350)
+        self.assertEqual(loaded.hold_ms, 350)
 
-    def test_version_four_custom_profile_overrides_survive_builtin_migration(self):
+    def test_missing_hold_ms_defaults_to_zero(self):
+        loaded = TrikiConfig.from_dict({"version": 6})
+        self.assertEqual(loaded.hold_ms, 0)
+
+    def test_old_config_drops_legacy_builtins_but_keeps_custom_profiles(self):
+        # Legacy BUILT-IN names (Default) are dropped; a user-created custom profile
+        # (My Game) survives. The two built-ins are always present.
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
             path.write_text(
                 json.dumps(
                     {
-                        "version": 4,
+                        "version": 5,
                         "active_profile": "Default",
                         "profiles": {
-                            "Default": {
-                                "rotate-cw": {"type": "key", "key": "right"},
-                                "rotate-ccw": {"type": "key", "key": "left"},
-                                "scrub-cw": {"type": "key", "key": "x"},
-                                "scrub-ccw": {"type": "key", "key": "left"},
-                                "back-forth": {"type": "key", "key": "escape"},
-                                "lift": {"type": "key", "key": "enter"},
-                                "flip-over": {"type": "key", "key": "space"},
-                            }
+                            "Default": {"rotate-cw": {"type": "key", "key": "right"}},
+                            "My Game": {"scrub-cw": {"type": "key", "key": "x"}},
                         },
                     }
                 ),
@@ -285,37 +397,216 @@ class TrikiActionTests(unittest.TestCase):
 
             loaded = load_config(path)
 
-        self.assertEqual(loaded.version, 5)
-        self.assertEqual(loaded.actions["scrub-cw"].key_name, "x")
-        self.assertEqual(loaded.actions["scrub-ccw"].key_name, "page-up")
-        self.assertEqual(loaded.profiles["WASD Game"]["scrub-cw"].key_name, "w")
-        self.assertIn("Which Sausage, Mate?", loaded.profiles)
+        self.assertEqual(loaded.version, CONFIG_VERSION)
+        self.assertNotIn("Default", loaded.profiles)  # legacy built-in dropped
+        self.assertIn("Game", loaded.profiles)
+        self.assertIn("Music", loaded.profiles)
+        self.assertIn("My Game", loaded.profiles)  # custom profile kept
+        self.assertEqual(loaded.profiles["My Game"]["scrub-cw"].key_name, "x")
+        # active 'Default' was a legacy built-in -> remaps to Game.
+        self.assertEqual(loaded.active_profile, "Game")
 
-    def test_version_two_profile_config_is_migrated_with_presets(self):
+
+class LoadConfigResilienceTests(unittest.TestCase):
+    def _assert_falls_back_with_backup(self, raw_text: str) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            path.write_text(raw_text, encoding="utf-8")
+            backup = path.with_suffix(path.suffix + ".bak")
+
+            loaded = load_config(path)
+
+            self.assertTrue(backup.exists(), f"expected backup for: {raw_text!r}")
+            self.assertEqual(backup.read_text(encoding="utf-8"), raw_text)
+        self.assertEqual(loaded.active_profile, "Game")
+        self.assertEqual(loaded.actions["turn-right"].key_name, "right")
+
+    def test_malformed_json_falls_back_to_defaults_and_backs_up(self):
+        self._assert_falls_back_with_backup("{not valid json")
+
+    def test_list_top_level_falls_back_to_defaults_and_backs_up(self):
+        self._assert_falls_back_with_backup(json.dumps([1, 2, 3]))
+
+    def test_null_top_level_falls_back_to_defaults_and_backs_up(self):
+        self._assert_falls_back_with_backup(json.dumps(None))
+
+    def test_garbage_version_falls_back_to_defaults_and_backs_up(self):
+        self._assert_falls_back_with_backup(
+            json.dumps({"version": "garbage", "active_profile": "Default"})
+        )
+
+    def test_negative_macro_delay_falls_back_to_defaults_and_backs_up(self):
+        self._assert_falls_back_with_backup(
+            json.dumps(
+                {
+                    "version": 6,
+                    "active_profile": "Default",
+                    "profiles": {
+                        "Default": {
+                            "back-forth": {
+                                "type": "macro",
+                                "steps": [{"type": "delay", "ms": -5}],
+                            }
+                        }
+                    },
+                }
+            )
+        )
+
+    def test_valid_legacy_config_loads_without_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
             path.write_text(
                 json.dumps(
                     {
-                        "version": 2,
-                        "active_profile": "Default",
-                        "profiles": {
-                            "Default": {
-                                "rotate-cw": {"type": "key", "key": "right"},
-                                "shake": {"type": "disabled"},
-                            }
+                        "version": 1,
+                        "actions": {
+                            "rotate-cw": {"type": "key", "key": "d"},
+                            "rotate-ccw": {"type": "key", "key": "a"},
                         },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            backup = path.with_suffix(path.suffix + ".bak")
+
+            loaded = load_config(path)
+
+            self.assertFalse(backup.exists())
+        # A valid (parseable) legacy config still loads without a backup, but the
+        # collapse ships the fresh Game built-in (old custom rows are discarded).
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(loaded.actions["turn-right"].key_name, "right")
+
+    def test_from_dict_rejects_non_object_payload(self):
+        with self.assertRaises(ValueError):
+            TrikiConfig.from_dict([1, 2, 3])
+
+
+class MacroValidationTests(unittest.TestCase):
+    def test_empty_macro_text_reports_helpful_message(self):
+        for text in ("", "  ,  , "):
+            with self.assertRaises(ValueError) as context:
+                parse_macro_text(text)
+            self.assertIn("enter at least one key or delay", str(context.exception))
+
+    def test_bare_ms_delay_reports_invalid_macro_delay(self):
+        with self.assertRaises(ValueError) as context:
+            parse_macro_text("ms")
+        self.assertIn("invalid macro delay", str(context.exception))
+
+    def test_macro_delay_is_clamped_to_ceiling(self):
+        self.assertEqual(ActionStep.delay(999999999).delay_ms, MAX_MACRO_DELAY_MS)
+        self.assertEqual(
+            parse_macro_text("left, 999999999ms").steps[1].delay_ms, MAX_MACRO_DELAY_MS
+        )
+
+
+class ForwardCompatibleMigrationTests(unittest.TestCase):
+    def test_version_above_current_collapses_to_two_and_clamps_version(self):
+        # A future / higher-version config also collapses to the two built-ins and
+        # the version is clamped to CONFIG_VERSION.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 99,
+                        "active_profile": "Default",
+                        "profiles": {"Default": {"rotate-cw": {"type": "key", "key": "x"}}},
                     }
                 ),
                 encoding="utf-8",
             )
 
             loaded = load_config(path)
+            save_config(path, loaded)
+            raw = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(list(loaded.profiles.keys()), ["Default", "WASD Game", "Media", "Presentation", "Which Sausage, Mate?"])
-        self.assertEqual(loaded.profiles["Default"]["back-forth"].type, "disabled")
-        self.assertNotIn("shake", loaded.profiles["Default"])
-        self.assertEqual(loaded.profiles["Media"]["lift"].key_name, "media-play-pause")
+        self.assertEqual(sorted(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(loaded.active_profile, "Game")
+        self.assertEqual(loaded.version, CONFIG_VERSION)
+        self.assertEqual(raw["version"], CONFIG_VERSION)
+
+
+class EngineSelectionTests(unittest.TestCase):
+    def test_game_profile_uses_motion_engine_others_classifier(self):
+        self.assertEqual(engine_for_profile(GAME_PROFILE_NAME), ENGINE_MOTION)
+        self.assertEqual(engine_for_profile(MUSIC_PROFILE_NAME), ENGINE_CLASSIFIER)
+        # MOTION_PROFILE_NAME is an alias of Game.
+        self.assertEqual(MOTION_PROFILE_NAME, GAME_PROFILE_NAME)
+        self.assertEqual(engine_for_profile(MOTION_PROFILE_NAME), ENGINE_MOTION)
+        # Any unknown name falls back to the classifier.
+        self.assertEqual(engine_for_profile("Doom"), ENGINE_CLASSIFIER)
+        self.assertEqual(engine_for_profile("whatever"), ENGINE_CLASSIFIER)
+
+    def test_default_config_uses_motion_engine(self):
+        # The default profile is Game, so the default engine is motion.
+        config = TrikiConfig().merged_with_defaults()
+        self.assertEqual(config.active_profile, GAME_PROFILE_NAME)
+        self.assertEqual(config.engine, ENGINE_MOTION)
+        self.assertEqual(DEFAULT_ENGINE, ENGINE_MOTION)
+
+    def test_selecting_music_sets_classifier_engine(self):
+        config = TrikiConfig(active_profile=MUSIC_PROFILE_NAME).merged_with_defaults()
+        self.assertEqual(config.active_profile, MUSIC_PROFILE_NAME)
+        self.assertEqual(config.engine, ENGINE_CLASSIFIER)
+
+    def test_normalize_engine_defaults_and_validates(self):
+        # normalize_engine still validates raw values; missing/unknown -> motion
+        # (the new DEFAULT_ENGINE), known values pass through.
+        self.assertEqual(normalize_engine(None), ENGINE_MOTION)
+        self.assertEqual(normalize_engine(""), ENGINE_MOTION)
+        self.assertEqual(normalize_engine("nonsense"), ENGINE_MOTION)
+        self.assertEqual(normalize_engine("classifier"), ENGINE_CLASSIFIER)
+        self.assertEqual(normalize_engine("motion"), ENGINE_MOTION)
+        self.assertEqual(normalize_engine("  MOTION  "), ENGINE_MOTION)
+
+    def test_engine_derives_from_active_profile_not_stale_stored_value(self):
+        # A stored engine that disagrees with the active profile is reconciled to
+        # the profile, so the two never drift apart. (Active 'Default' collapses to
+        # Game -> motion regardless of a stored 'classifier'.)
+        loaded = TrikiConfig.from_dict(
+            {"version": 7, "engine": "classifier", "active_profile": "Default"}
+        )
+        self.assertEqual(loaded.active_profile, GAME_PROFILE_NAME)
+        self.assertEqual(loaded.engine, ENGINE_MOTION)
+        loaded2 = TrikiConfig.from_dict(
+            {"version": 7, "engine": "motion", "active_profile": "Media"}
+        )
+        self.assertEqual(loaded2.active_profile, MUSIC_PROFILE_NAME)
+        self.assertEqual(loaded2.engine, ENGINE_CLASSIFIER)
+
+    def test_engine_round_trips_through_config(self):
+        config = TrikiConfig(active_profile=GAME_PROFILE_NAME).merged_with_defaults()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            save_config(path, config)
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            loaded = load_config(path)
+
+        self.assertEqual(raw["engine"], ENGINE_MOTION)
+        self.assertEqual(loaded.engine, ENGINE_MOTION)
+        self.assertEqual(loaded.active_profile, GAME_PROFILE_NAME)
+        # A Music config persists engine == "classifier".
+        music_config = TrikiConfig(active_profile=MUSIC_PROFILE_NAME).merged_with_defaults()
+        self.assertEqual(music_config.to_dict()["engine"], ENGINE_CLASSIFIER)
+
+
+class AutoHoldTests(unittest.TestCase):
+    def test_game_profile_keeps_continuous_hold_when_set(self):
+        # The Game profile (motion) auto-holds: a non-zero hold_ms is retained so
+        # the continuous re-emitted intent keeps the key held (no toggle needed).
+        config = TrikiConfig(active_profile=GAME_PROFILE_NAME, hold_ms=200).merged_with_defaults()
+        self.assertEqual(config.engine, ENGINE_MOTION)
+        self.assertEqual(config.hold_ms, 200)
+
+    def test_music_profile_forces_zero_hold(self):
+        # Music runs the classifier with one-shot taps; hold_ms is forced to 0.
+        config = TrikiConfig(active_profile=MUSIC_PROFILE_NAME, hold_ms=350).merged_with_defaults()
+        self.assertEqual(config.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(config.hold_ms, 0)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
-﻿import json
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from triki_control.protocol import MotionSample
-from triki_control.recording import SampleRecorder, build_recording_paths, summarize_records
+from triki_protocol import MotionSample
+from triki_recording import SampleRecorder, build_recording_paths, summarize_records
 
 
 class RecordingTests(unittest.TestCase):

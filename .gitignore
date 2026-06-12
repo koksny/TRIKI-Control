@@ -37,3 +37,8 @@ Thumbs.db
 .playwright-cli/
 tools/platform-tools/
 tools/platform-tools-*.zip
+
+# Local runtime / recordings
+tmp/
+sessions/
+*.jsonl

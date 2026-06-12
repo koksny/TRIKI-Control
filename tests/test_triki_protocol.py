@@ -1,6 +1,6 @@
-﻿import unittest
+import unittest
 
-from triki_control.protocol import MotionStreamParser
+from triki_protocol import MotionStreamParser
 
 
 class MotionStreamParserTests(unittest.TestCase):
