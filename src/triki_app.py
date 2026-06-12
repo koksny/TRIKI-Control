@@ -68,6 +68,7 @@ MAX_IMPORT_PROFILES = 64
 # continuous. 120 ms bridges the p99 gap -> smooth holds, with only ~120 ms of
 # over-travel when you stop (well under the 400 ms that felt laggy).
 DEFAULT_MOTION_HOLD_MS = 120
+APP_ICON_TRAY_ASSET = Path("assets") / "triki-control-icon-tray.png"
 
 
 class AppSession:
@@ -866,12 +867,33 @@ class TrayController:
         self.window.destroy()
 
 
+def app_resource_path(relative_path: Path | str) -> Path:
+    base_path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return base_path / Path(relative_path)
+
+
 def create_tray_image(image_module, image_draw_module):
+    icon = _load_tray_icon(image_module)
+    if icon is not None:
+        return icon
+
     image = image_module.new("RGBA", (64, 64), (0, 0, 0, 0))
     draw = image_draw_module.Draw(image)
     draw.ellipse((6, 6, 58, 58), fill=(35, 134, 54, 255), outline=(46, 160, 67, 255), width=3)
     draw.text((21, 18), "T", fill=(255, 255, 255, 255))
     return image
+
+
+def _load_tray_icon(image_module):
+    try:
+        with image_module.open(app_resource_path(APP_ICON_TRAY_ASSET)) as source:
+            image = source.convert("RGBA")
+        resampling = getattr(getattr(image_module, "Resampling", image_module), "LANCZOS", 1)
+        if image.size != (64, 64):
+            image = image.resize((64, 64), resampling)
+        return image
+    except Exception:
+        return None
 
 
 def app_url_for_path(base_url: str, path: str) -> str:

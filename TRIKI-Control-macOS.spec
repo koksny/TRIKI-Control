@@ -8,7 +8,7 @@ from PyInstaller.utils.hooks import collect_all
 from triki_macos_package import macos_info_plist
 
 
-datas = []
+datas = [("assets/triki-control-icon-tray.png", "assets")]
 binaries = []
 hiddenimports = []
 
@@ -79,7 +79,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="TRIKI Control.app",
-    icon=None,
+    icon="assets/triki-control-icon.icns",
     bundle_identifier="com.koksny.triki.control",
     info_plist=macos_info_plist(),
 )

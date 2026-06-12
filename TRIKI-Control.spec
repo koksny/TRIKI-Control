@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('assets/triki-control-icon-tray.png', 'assets')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('bleak')
@@ -42,6 +42,7 @@ exe = EXE(
     a.datas,
     [],
     name='TRIKI-Control',
+    icon='assets/triki-control-icon.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

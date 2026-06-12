@@ -36,6 +36,7 @@ from triki_app import (
     build_debug_html,
     build_engine_router,
     build_html,
+    create_tray_image,
     display_name_for_label,
     handle_control,
     ProfileEngineRouter,
@@ -1442,6 +1443,18 @@ class TrikiAppTests(unittest.TestCase):
             ["Open TRIKI Control", "Pair TRIKI", "Diagnostics", "Quit"],
         )
         self.assertTrue(controller.icon.detached)
+
+    def test_tray_image_uses_packaged_app_icon_asset(self):
+        from PIL import Image, ImageDraw
+
+        image = create_tray_image(Image, ImageDraw)
+
+        self.assertEqual(image.size, (64, 64))
+        self.assertEqual(image.mode, "RGBA")
+        self.assertLess(image.getpixel((0, 0))[3], 12)
+        bottom_right = image.getpixel((54, 54))
+        self.assertGreater(bottom_right[0], 120)
+        self.assertGreater(bottom_right[2], 120)
 
     def test_post_control_action_posts_json_to_control_endpoint(self):
         requests = []

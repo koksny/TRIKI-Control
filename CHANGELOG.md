@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Refreshed the README screenshot and packaged application icon assets.
+
 ## 1.0.0
 
 First public release. The cap is a playable game controller, tuned end-to-end until it could finish Doom.

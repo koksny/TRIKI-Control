@@ -79,6 +79,10 @@ This produces a `.app` bundle in `dist/` carrying the Bluetooth usage strings Co
 
 There is no single-file Linux executable, because the WebKit/Qt GUI backend has to come from the system and cannot be bundled. Run from source (above) after installing a backend per [linux.md](linux.md).
 
+## Packaged icon assets
+
+The packaged app icons live in `assets/triki-control-icon.*`. Windows builds use the `.ico`, macOS builds use the `.icns`, and the tray icon uses `assets/triki-control-icon-tray.png` as bundled data in the PyInstaller specs.
+
 ## Regenerating the cap art
 
 The cap illustrations shown in the UI are embedded as data URIs in `src/triki_assets.py`. If you change the source PNGs in `assets/`, regenerate the module with:

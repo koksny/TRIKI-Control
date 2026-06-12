@@ -13,6 +13,8 @@ python src/triki_app.py
 
 The application modules live under `src/` as flat `triki_*.py` files, with no package install step. Full build and platform setup is in [docs/build.md](docs/build.md).
 
+When changing screenshots or packaged icons, keep the source assets in `assets/` and run the relevant PyInstaller spec before publishing a release.
+
 ```bash
 python -m pip install pytest
 python -m pytest tests/
