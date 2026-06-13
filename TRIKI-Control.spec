@@ -1,9 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+from build_support import collect_windows_openssl_binaries
 from PyInstaller.utils.hooks import collect_all
 
 datas = [('assets/triki-control-icon-tray.png', 'assets')]
 binaries = []
 hiddenimports = []
+binaries += collect_windows_openssl_binaries()
 tmp_ret = collect_all('bleak')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('winrt')

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Refreshed the README screenshot and packaged application icon assets.
+- Fixed Windows builds so the bundled WebView runtime includes OpenSSL DLLs required by Python's SSL module.
 
 ## 1.0.0
 
