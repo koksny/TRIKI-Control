@@ -18,7 +18,8 @@ def build_linux_release(
     release_dir: Path,
     version: str,
 ) -> Path:
-    root = root.resolve()
+    project_root = _project_root(root)
+    source_root = _source_root(project_root)
     release_dir = release_dir.resolve()
     name = linux_release_name(version)
     stage_dir = release_dir / name
@@ -30,9 +31,11 @@ def build_linux_release(
         archive_path.unlink()
     stage_dir.mkdir(parents=True)
 
-    for filename in _linux_release_root_files():
-        shutil.copy2(root / filename, stage_dir / filename)
-    shutil.copytree(root / "docs", stage_dir / "docs")
+    for filename in _project_root_files():
+        shutil.copy2(project_root / filename, stage_dir / filename)
+    for source in sorted(source_root.glob("triki_*.py")):
+        shutil.copy2(source, stage_dir / source.name)
+    shutil.copytree(project_root / "docs", stage_dir / "docs")
     _write_launcher(stage_dir / "triki-control")
     _write_start_here(stage_dir / "START-HERE.txt", version)
 
@@ -41,32 +44,22 @@ def build_linux_release(
     return archive_path
 
 
-def _linux_release_root_files() -> tuple[str, ...]:
-    return (
-        "README.md",
-        "CREDITS.md",
-        "LICENSE",
-        "requirements.txt",
-        "triki_actions.py",
-        "triki_analyze_recordings.py",
-        "triki_app.py",
-        "triki_battery.py",
-        "triki_calibration.py",
-        "triki_calibration_server.py",
-        "triki_classifier.py",
-        "triki_desktop.py",
-        "triki_diagnostics.py",
-        "triki_gestures.py",
-        "triki_key_emitter.py",
-        "triki_linux_package.py",
-        "triki_linux_smoke.py",
-        "triki_live.py",
-        "triki_metadata.py",
-        "triki_play.py",
-        "triki_probe.py",
-        "triki_protocol.py",
-        "triki_recording.py",
-    )
+def _project_root(root: Path) -> Path:
+    root = root.resolve()
+    if (root / "src").is_dir():
+        return root
+    if root.name == "src" and (root.parent / "README.md").exists():
+        return root.parent
+    return root
+
+
+def _source_root(project_root: Path) -> Path:
+    source_root = project_root / "src"
+    return source_root if source_root.is_dir() else project_root
+
+
+def _project_root_files() -> tuple[str, ...]:
+    return ("README.md", "CREDITS.md", "LICENSE", "requirements.txt")
 
 
 def _write_launcher(path: Path) -> None:
@@ -111,7 +104,7 @@ Before using key output, read docs/linux.md and run:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Package TRIKI Control for Linux.")
     parser.add_argument("--version", default="")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--release-dir", type=Path, default=Path("release"))
     return parser
 

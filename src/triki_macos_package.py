@@ -45,7 +45,7 @@ def build_macos_release(
     version: str,
     app_path: Path,
 ) -> Path:
-    root = root.resolve()
+    root = _project_root(root)
     release_dir = release_dir.resolve()
     app_path = app_path.resolve()
     if not app_path.exists():
@@ -73,6 +73,15 @@ def build_macos_release(
             _zip_tree(archive, stage_dir, package_root)
             _zip_tree(archive, app_path, package_root / app_path.name)
     return archive_path
+
+
+def _project_root(root: Path) -> Path:
+    root = root.resolve()
+    if (root / "src").is_dir():
+        return root
+    if root.name == "src" and (root.parent / "README.md").exists():
+        return root.parent
+    return root
 
 
 def _write_start_here(path: Path, version: str) -> None:
@@ -160,7 +169,7 @@ def _directory_archive_name(path: Path) -> str:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Package TRIKI Control for macOS.")
     parser.add_argument("--version", default="")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--release-dir", type=Path, default=Path("release"))
     parser.add_argument("--app-path", type=Path, default=Path("dist") / "TRIKI Control.app")
     return parser

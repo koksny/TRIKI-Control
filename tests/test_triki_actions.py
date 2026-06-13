@@ -85,15 +85,22 @@ class TrikiActionTests(unittest.TestCase):
         self.assertNotIn("scrub-cw", game)
         self.assertNotIn("flip-over", game)
 
-    def test_every_profile_uses_the_game_action_map(self):
+    def test_every_profile_uses_motion_rows_but_profile_defaults(self):
         profiles = default_profile_map()
         game = profiles["Game"]
+        music = profiles["Music"]
 
-        self.assertEqual(profiles["Music"], game)
         self.assertEqual(default_actions_for_profile("Arena"), game)
         self.assertEqual(labels_for_profile("Game"), MOTION_LABELS)
         self.assertEqual(labels_for_profile("Music"), MOTION_LABELS)
         self.assertEqual(labels_for_profile("Arena"), MOTION_LABELS)
+        self.assertEqual(set(music), set(MOTION_LABELS))
+        self.assertEqual(music["turn-left"].key_name, "volume-down")
+        self.assertEqual(music["turn-right"].key_name, "volume-up")
+        self.assertEqual(music["go"].key_name, "media-prev")
+        self.assertEqual(music["stamp"].key_name, "media-play-pause")
+        self.assertEqual(music["flip"].key_name, "volume-mute")
+        self.assertEqual(music["scrub-straight"].key_name, "media-next")
 
     def test_empty_config_starts_with_two_profiles_active_game(self):
         config = TrikiConfig().merged_with_defaults()
@@ -278,7 +285,7 @@ class TrikiActionTests(unittest.TestCase):
         # Game ships its fresh first-class defaults (not the stored 'right' on every
         # row); the old discrete labels never leak into the motion vocabulary.
         self.assertEqual(loaded.profiles["Game"], default_profile_map()["Game"])
-        self.assertEqual(loaded.profiles["Music"], default_profile_map()["Game"])
+        self.assertEqual(loaded.profiles["Music"], default_profile_map()["Music"])
 
     def test_legacy_active_media_remaps_to_music(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -299,7 +306,45 @@ class TrikiActionTests(unittest.TestCase):
         self.assertEqual(loaded.active_profile, "Music")
         self.assertEqual(loaded.engine, ENGINE_MOTION)
         self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
-        self.assertEqual(loaded.actions, default_profile_map()["Game"])
+        self.assertEqual(loaded.actions, default_profile_map()["Music"])
+
+    def test_v14_music_game_defaults_reset_to_media_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 14,
+                        "active_profile": "Music",
+                        "profiles": {"Music": {
+                            "turn-left": {"type": "key", "key": "left"},
+                            "turn-right": {"type": "key", "key": "right"},
+                            "go": {"type": "key", "key": "w"},
+                            "stamp": {"type": "key", "key": "enter"},
+                            "flip": {"type": "key", "key": "shift"},
+                            "scrub-straight": {"type": "key", "key": "space"},
+                        }},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = load_config(path)
+
+        self.assertEqual(loaded.version, CONFIG_VERSION)
+        self.assertEqual(loaded.active_profile, "Music")
+        self.assertEqual(loaded.profiles["Music"], default_profile_map()["Music"])
+        self.assertEqual(loaded.actions, default_profile_map()["Music"])
+
+    def test_current_music_custom_bindings_survive_config_merge(self):
+        config = TrikiConfig(
+            version=CONFIG_VERSION,
+            active_profile="Music",
+            profiles={"Music": {"stamp": ActionBinding.key("space")}},
+        ).merged_with_defaults()
+
+        self.assertEqual(config.profiles["Music"]["stamp"].key_name, "space")
+        self.assertEqual(config.profiles["Music"]["turn-right"].key_name, "volume-up")
 
     def test_legacy_config_actions_only_collapses_to_game(self):
         with tempfile.TemporaryDirectory() as directory:

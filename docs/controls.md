@@ -1,6 +1,6 @@
 # Controls & play guide
 
-TRIKI Control ships two built-in profile slots. **Game** is the default, rotation-invariant scheme tuned for shooters. **Music** is a second built-in slot with the same controls and defaults, so **Advanced > Action Mapping** shows one consistent table for every profile.
+TRIKI Control ships two built-in profile slots. **Game** is the default, rotation-invariant scheme tuned for shooters. **Music** is a second built-in slot with the same controls but media-key defaults, so **Advanced > Action Mapping** shows one consistent table for every profile.
 
 ## Game profile (the tank scheme)
 
@@ -31,6 +31,8 @@ In **Advanced**, for any profile:
 - **Turn sensitivity:** how hard you have to twist before it turns. The default (50) is a good middle. Bump it up if gentle turns get missed; drop it if you get the occasional ghost turn.
 
 Every row in **Action Mapping** can be rebound to any key, media key, or short macro. The Game control labels are `turn-left` and `turn-right` (turn), `go` (walk), `stamp` (fire), `flip` (run), and `scrub-straight` (use/door).
+
+For the **Music** profile, those same rows default to media controls: `turn-left` lowers volume, `turn-right` raises volume, `go` goes to the previous track, `stamp` toggles play/pause, `flip` mutes, and `scrub-straight` skips to the next track.
 
 ## A note on "more axes"
 

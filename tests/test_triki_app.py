@@ -77,7 +77,7 @@ def synth_lean_hold_samples(dt=0.02, deg=25.0, hold_s=1.0, ramp_s=0.30):
     """
     samples = []
     t = 0.0
-    for _ in range(int(0.5 / dt)):
+    for _ in range(int(1.5 / dt)):
         samples.append((t, MotionSample(packet_id=0, values=(0, 0, 0, 0, 0, -int(G)))))
         t += dt
     th = math.radians(deg)
@@ -112,7 +112,7 @@ def synth_twist_samples(rate=2600, n=80, dt=0.02):
     NEVER a FIRE. Returns MotionSamples (no calibration involved)."""
     seq = []
     t = 0.0
-    for _ in range(int(0.5 / dt)):
+    for _ in range(int(1.5 / dt)):
         seq.append((t, (0, 0, 0, 0, 0, -int(G))))
         t += dt
     for _ in range(n):
@@ -128,6 +128,7 @@ REAL_STAMP_LOG = os.path.join(
     os.path.expanduser("~"),
     "AppData", "Roaming", "TRIKI", "sessions", "session-20260605-030830.jsonl",
 )
+RUN_REAL_LOG_TESTS = os.environ.get("TRIKI_REAL_LOG_TESTS") == "1"
 
 
 def _load_gesture_rows(path):
@@ -292,9 +293,9 @@ class TrikiAppTests(unittest.TestCase):
         emitter.close()
 
     def test_game_profile_holds_movement_key_through_executor(self):
-        # The Game profile binds tilt-forward -> 'up'; a sustained forward lean
-        # re-emits tilt-forward every sample and the HoldKeyEmitter holds the 'up'
-        # arrow continuously, releasing once when the intent stops.
+        # The Game profile binds the tank GO control to 'w'; a sustained lean
+        # re-emits GO every sample and the HoldKeyEmitter holds 'w' continuously,
+        # releasing once when the intent stops.
         base = _RecordingBase()
         emitter = HoldKeyEmitter(base, hold_ms=400)
         session = AppSession(
@@ -304,11 +305,11 @@ class TrikiAppTests(unittest.TestCase):
         session.switch_profile("Game")
 
         for _ in range(3):
-            session.record_prediction(1.0, prediction("tilt-forward"))
+            session.record_prediction(1.0, prediction("go"))
 
-        self.assertEqual(base.downs, ["up"])
+        self.assertEqual(base.downs, ["w"])
         emitter.set_hold_ms(0)
-        self.assertEqual(base.ups, ["up"])
+        self.assertEqual(base.ups, ["w"])
         emitter.close()
 
     def test_create_profile_rejects_duplicate_name(self):
@@ -415,7 +416,7 @@ class TrikiAppTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "triki.json"
             session = AppSession(config_path=config_path, executor=ActionExecutor(key_emitter=NullKeyEmitter()))
-            # Music uses the same Motion/Game action vocabulary as Game.
+            # Music uses the same Motion/Game action vocabulary, with media-key defaults.
             session.switch_profile("Music")
 
             state = session.update_action("stamp", ActionBinding.macro((ActionStep.key("escape"), ActionStep.delay(50))))
@@ -476,13 +477,13 @@ class TrikiAppTests(unittest.TestCase):
         music_state = session.reset_active_profile()
         self.assertEqual(music_state["active_profile"], "Music")
         music_actions = {item["gesture_label"]: item for item in music_state["actions"]}
-        self.assertEqual(music_actions["turn-left"]["binding"]["key"], "left")
+        self.assertEqual(music_actions["turn-left"]["binding"]["key"], "volume-down")
 
     def test_handle_control_maps_key_and_macro_actions(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         bus = EventBus()
         control = ConnectionControl(manual_pairing=True)
-        # Music exposes the same Motion/Game action rows as Game.
+        # Music exposes the same Motion/Game action rows as Game, but starts on media keys.
         session.switch_profile("Music")
 
         key_state = handle_control(
@@ -641,11 +642,17 @@ class TrikiAppTests(unittest.TestCase):
         # The kid-facing row name says what the control DOES (no band-aid rename).
         self.assertEqual(display_name_for_label("go"), "Go forward (tilt)")
         self.assertEqual(display_name_for_label("stamp"), "Stamp (fire)")
-        # Music has exactly the same rows/defaults as Game.
+        # Music has the same rows as Game, but defaults to media controls.
         session.switch_profile("Music")
         music_state = session.snapshot()
         music_actions = {item["gesture_label"]: item for item in music_state["actions"]}
-        self.assertEqual(music_actions, game_actions)
+        self.assertEqual(set(music_actions), set(game_actions))
+        self.assertEqual(music_actions["turn-right"]["binding"]["key"], "volume-up")
+        self.assertEqual(music_actions["turn-left"]["binding"]["key"], "volume-down")
+        self.assertEqual(music_actions["go"]["binding"]["key"], "media-prev")
+        self.assertEqual(music_actions["stamp"]["binding"]["key"], "media-play-pause")
+        self.assertEqual(music_actions["flip"]["binding"]["key"], "volume-mute")
+        self.assertEqual(music_actions["scrub-straight"]["binding"]["key"], "media-next")
 
     def test_builtin_profile_set_is_exactly_two(self):
         # The spec contract (pt 5): EXACTLY two built-ins -- Game + Music -- and the
@@ -853,7 +860,7 @@ class TrikiAppTests(unittest.TestCase):
         # the T() lookup instead of a hard-coded English literal.
         self.assertIn("pairButton.textContent = isConnected ? T('connect.connected') : T('connect.pair');", html)
         self.assertIn("'connect.connected': 'Connected'", html)
-        self.assertIn("'connect.connected': 'Polaczono'", html)
+        self.assertIn("'connect.connected': 'Połączono'", html)
 
     def test_html_exposes_press_and_hold_led_test_control(self):
         html = build_html()
@@ -907,7 +914,8 @@ class TrikiAppTests(unittest.TestCase):
         self.assertIn("html, body {", html)
         self.assertIn("height: 100vh;", html)
         self.assertIn("overflow: hidden;", html)
-        self.assertIn("main { max-width: 1020px;", html)
+        self.assertIn("#fit-stage {", html)
+        self.assertIn("width: 1020px;", html)
 
     def test_html_embeds_real_cap_art_as_inline_data_uri(self):
         # The live-cap hero reuses the existing GPT-5.5 cap PNGs, base64-inlined
@@ -1084,7 +1092,7 @@ class TrikiAppTests(unittest.TestCase):
 
         run_webview_window("http://127.0.0.1:8765/", webview_module=fake)
 
-        self.assertFalse(fake.created["kwargs"]["resizable"])
+        self.assertTrue(fake.created["kwargs"]["resizable"])
         self.assertEqual(fake.created["kwargs"]["width"], 1020)
         self.assertEqual(fake.created["kwargs"]["height"], 820)
 
@@ -1492,11 +1500,12 @@ def synth_dir_lean_samples(dx, dy, deg=20.0, hold_s=1.0, ramp_s=0.30, dt=0.02, s
     Mirrors synth_dir_lean in tests/test_triki_motion_engine.py: gravity rocks into
     the cap's own d/e plane toward (dx,dy), so the engine's hd/he decode picks the
     matching WASD label. (+e -> backward / scrub-ccw; -e -> forward / scrub-cw;
-    +d -> strafe-right / flip-over; -d -> strafe-left / back-forth.)
+    All held leans now emit the tank GO label; hd/he remain diagnostics for the
+    on-screen cap direction.
     """
     seq = []
     t = 0.0
-    for _ in range(int(0.5 / dt)):
+    for _ in range(int(1.5 / dt)):
         seq.append((t, (0, 0, 0, 0, 0, -int(G))))
         t += dt
     th = math.radians(deg)
@@ -1569,8 +1578,8 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
         self.assertIn("hd", records[-1])
         self.assertIn("he", records[-1])
         self.assertIn("fire", records[-1])
-        # A held lean commits a MOVE intent (forward/back per the e-axis sign).
-        self.assertTrue(any(r["intent"] in ("move-forward", "move-backward") for r in records))
+        # A held lean commits the tank GO intent.
+        self.assertTrue(any(r["intent"] == "go" for r in records))
 
     def test_engine_router_follows_runtime_profile_switch(self):
         # REGRESSION: the live engine must FOLLOW a runtime profile switch. With a
@@ -1627,7 +1636,7 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
     def test_lean_sequence_through_engine_holds_bound_movement_key(self):
         # END-TO-END: feed a held e-axis lean through the Motion engine; every
         # emitted GesturePrediction goes to record_prediction, which maps the
-        # committed MOVE label (scrub-ccw here) -> its Game key 'down' and the
+        # committed GO label -> its Game key 'w' and the
         # HoldKeyEmitter keeps the key held with a SINGLE key_down (continuous walk,
         # no re-tapping). The physical +/- direction is a remappable preference; the
         # contract is "one committed MOVE label -> its bound arrow, held".
@@ -1645,20 +1654,19 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
                 emitted_labels.append(pred.label)
                 session.record_prediction(t, pred)
 
-        # The +e lean commits MOVE_BACKWARD (scrub-ccw) -> Game key 'down'.
+        # The +e lean commits GO -> Game key 'w'.
         self.assertIn(MOVE_BACKWARD_LABEL, emitted_labels)
-        self.assertEqual(base.downs, ["down"])  # held continuously: exactly one down
+        self.assertEqual(base.downs, ["w"])  # held continuously: exactly one down
         self.assertEqual(base.ups, [])  # not released while the lean persists
         self.assertGreater(session.snapshot()["action_count"], 1)  # re-emitted every sample
 
         # Lean ends -> releasing the hold (deterministically) lets the key up once.
         emitter.set_hold_ms(0)
-        self.assertEqual(base.ups, ["down"])
+        self.assertEqual(base.ups, ["w"])
         emitter.close()
 
     def test_forward_lean_maps_to_up_arrow(self):
-        # A clean FORWARD lean (he<0) commits scrub-cw -> Game key 'up'. This is the
-        # GUARANTEED-reliable movement axis (forward/back), held continuously.
+        # A clean forward lean commits GO -> Game key 'w', held continuously.
         base = _RecordingBase()
         emitter = HoldKeyEmitter(base, hold_ms=DEFAULT_MOTION_HOLD_MS)
         config = TrikiConfig(output_enabled=True, hold_ms=DEFAULT_MOTION_HOLD_MS).merged_with_defaults()
@@ -1673,7 +1681,7 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
                 session.record_prediction(t, pred)
 
         self.assertIn(MOVE_FORWARD_LABEL, emitted)  # he<0 -> forward
-        self.assertEqual(base.downs, ["up"])  # bound to 'up', held once
+        self.assertEqual(base.downs, ["w"])  # bound to 'w', held once
         self.assertEqual(base.ups, [])
         emitter.close()
 
@@ -1732,10 +1740,10 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
             pred = engine.add_sample(t, sample)
             if pred is not None:
                 session.record_prediction(t, pred)
-        self.assertEqual(base.downs, ["down"])
+        self.assertEqual(base.downs, ["w"])
 
         session.set_output_enabled(False)  # disabling output releases the held key
-        self.assertEqual(base.ups, ["down"])
+        self.assertEqual(base.ups, ["w"])
         emitter.close()
 
     def test_switching_out_of_game_profile_releases_held_key(self):
@@ -1749,17 +1757,17 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
             pred = engine.add_sample(t, sample)
             if pred is not None:
                 session.record_prediction(t, pred)
-        self.assertEqual(base.downs, ["down"])
+        self.assertEqual(base.downs, ["w"])
 
         # switch_profile already calls _release_held_keys() on the executor.
         # Music is the other built-in, with the same Motion engine settings.
         session.switch_profile("Music")
-        self.assertEqual(base.ups, ["down"])
+        self.assertEqual(base.ups, ["w"])
         self.assertEqual(session.config.engine, ENGINE_MOTION)
         emitter.close()
 
-    def _run_strafe(self, base, emitter, session, dx, dy):
-        # A held SIDEWAYS lean (best-effort d-axis strafe), body-frame, NO calibrate.
+    def _run_go_lean(self, base, emitter, session, dx, dy):
+        # Any held lean drives the tank GO label, body-frame, NO calibrate.
         engine = MotionControlEngine()
         emitted = []
         for t, sample in synth_dir_lean_samples(dx, dy, hold_s=1.0):
@@ -1769,54 +1777,53 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
                 session.record_prediction(t, pred)
         return emitted
 
-    def test_held_strafe_right_holds_the_bound_strafe_key(self):
-        # END-TO-END: a held lean to the RIGHT (hd>0) commits strafe-right
-        # (tilt-right) -> Game key '.' and HoldKeyEmitter holds it continuously (one
-        # key_down, no re-tap). Strafe is best-effort/remappable, but the d-axis
-        # geometry is sound: opposite leans -> opposite keys.
+    def test_held_right_lean_holds_the_tank_go_key(self):
+        # END-TO-END: a held lean to the RIGHT (hd>0) commits GO -> Game key 'w'
+        # and HoldKeyEmitter holds it continuously.
         base = _RecordingBase()
         emitter = HoldKeyEmitter(base, hold_ms=DEFAULT_MOTION_HOLD_MS)
         config = TrikiConfig(output_enabled=True, hold_ms=DEFAULT_MOTION_HOLD_MS).merged_with_defaults()
         session = AppSession(config=config, executor=ActionExecutor(key_emitter=emitter))
 
-        emitted = self._run_strafe(base, emitter, session, 1.0, 0.0)
+        emitted = self._run_go_lean(base, emitter, session, 1.0, 0.0)
         self.assertIn(MOVE_STRAFE_RIGHT_LABEL, emitted)
-        self.assertEqual(emitted[-1], MOVE_STRAFE_RIGHT_LABEL)  # committed direction
-        self.assertIn(".", base.downs)  # strafe-right key '.' (Game default) held
-        self.assertEqual(base.downs.count("."), 1)  # exactly one down (continuous)
+        self.assertEqual(emitted[-1], MOVE_STRAFE_RIGHT_LABEL)  # committed GO
+        self.assertIn("w", base.downs)
+        self.assertEqual(base.downs.count("w"), 1)  # exactly one down (continuous)
         self.assertEqual(base.ups, [])  # never released while the lean persists
 
         emitter.set_hold_ms(0)  # deterministic flush
-        self.assertIn(".", base.ups)
+        self.assertIn("w", base.ups)
         emitter.close()
 
-    def test_held_strafe_left_holds_the_bound_strafe_key(self):
-        # A held lean to the LEFT (hd<0) commits strafe-left (tilt-left) -> Game key
-        # ',' (the Doom-default strafe-left key). Opposite of strafe-right: the
-        # d-axis geometry is symmetric (opposite leans -> opposite keys).
+    def test_held_left_lean_holds_the_tank_go_key(self):
+        # A held lean to the LEFT (hd<0) also commits GO -> Game key 'w'.
         base = _RecordingBase()
         emitter = HoldKeyEmitter(base, hold_ms=DEFAULT_MOTION_HOLD_MS)
         config = TrikiConfig(output_enabled=True, hold_ms=DEFAULT_MOTION_HOLD_MS).merged_with_defaults()
         session = AppSession(config=config, executor=ActionExecutor(key_emitter=emitter))
 
-        emitted = self._run_strafe(base, emitter, session, -1.0, 0.0)
+        emitted = self._run_go_lean(base, emitter, session, -1.0, 0.0)
         self.assertIn(MOVE_STRAFE_LEFT_LABEL, emitted)
         self.assertEqual(emitted[-1], MOVE_STRAFE_LEFT_LABEL)
-        self.assertIn(",", base.downs)  # strafe-left key ',' (Game default)
-        self.assertEqual(base.downs.count(","), 1)
+        self.assertIn("w", base.downs)
+        self.assertEqual(base.downs.count("w"), 1)
         self.assertEqual(base.ups, [])
         emitter.close()
 
-    @unittest.skipUnless(os.path.exists(REAL_STAMP_LOG), "labeled real stamp log not present")
-    def test_stamp_fires_ctrl_through_the_game_profile(self):
+    @unittest.skipUnless(
+        RUN_REAL_LOG_TESTS and os.path.exists(REAL_STAMP_LOG),
+        "set TRIKI_REAL_LOG_TESTS=1 with labeled real session logs to run",
+    )
+    def test_stamp_fires_enter_through_the_game_profile(self):
         # END-TO-END: a real STAMP slice from the session log drives the Motion
-        # engine to emit a FIRE on 'lift', which the Game profile maps to 'ctrl'
+        # engine to emit STAMP, which the Game profile maps to Enter
         # (Doom-default fire). Fire is a TAP (per-stamp pulse), not a held key, so
         # the press goes through press_key, not key_down.
         slice_samples = _real_stamp_slice()
         emitter = NullKeyEmitter()
         config = TrikiConfig(output_enabled=True).merged_with_defaults()
-        self.assertEqual(config.actions[FIRE_LABEL].key_name, "ctrl")
+        self.assertEqual(config.actions[FIRE_LABEL].key_name, "enter")
         session = AppSession(config=config, executor=ActionExecutor(key_emitter=emitter))
         engine = MotionControlEngine()
 
@@ -1826,8 +1833,8 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
             if pred is not None and pred.label == FIRE_LABEL:
                 fired = True
                 session.record_prediction(t, pred)
-        self.assertTrue(fired, "a real stamp slice must fire 'lift'")
-        self.assertIn("ctrl", emitter.pressed)  # STAMP -> FIRE -> Ctrl
+        self.assertTrue(fired, "a real stamp slice must fire stamp")
+        self.assertIn("enter", emitter.pressed)  # STAMP -> Enter
 
     def test_held_tilt_and_twist_do_not_fire_through_the_app(self):
         # A held tilt (static gravity) and a twist (yaw-dominated) NEVER fire 'lift'
@@ -2074,9 +2081,10 @@ class GhostRotationUiTests(unittest.TestCase):
         # The on-screen cap must unwind to rest: driven by instantaneous gyro with a
         # frame-rate-independent decay, NOT an unconditional velocity accumulator.
         html = build_html()
-        self.assertIn("Math.pow(0.04, dt)", html)
-        self.assertIn("if (Math.abs(vis.spinAngle) < 0.2) vis.spinAngle = 0;", html)
-        # The old ever-integrating velocity accumulator is gone.
+        self.assertIn("if (Math.abs(turnRaw) > 0.035)", html)
+        self.assertIn("vis.spinAngle = (vis.spinAngle + vis.turn * spinGain * dt) % 360;", html)
+        self.assertIn("else: HOLD -- do not decay", html)
+        # The old velocity accumulator is gone.
         self.assertNotIn("spinVelocity", html)
 
 
@@ -2096,11 +2104,11 @@ class I18nUiTests(unittest.TestCase):
         self.assertIn('id="lang-toggle"', html)
         self.assertIn("control('lang'", html)
         # Representative Polish copy is present (PL-default, not just English).
-        self.assertIn("Polacz TRIKI", html)
+        self.assertIn("Połącz TRIKI", html)
         self.assertIn("Zaawansowane", html)
-        self.assertIn("Sterowanie przechylem", html)  # Tilt control (PL)
+        self.assertIn("Sterowanie przechyłem", html)  # Tilt control (PL)
         # No leftover Polish calibration copy (calibration is gone entirely).
-        self.assertNotIn("Skalibruj przod", html)
+        self.assertNotIn("Skalibruj przód", html)
 
     def test_debug_page_stays_english(self):
         debug = build_debug_html()

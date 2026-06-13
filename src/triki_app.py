@@ -1842,16 +1842,16 @@ def build_html() -> str:
 
     // Kid-friendly names + emoji per real profile, localized PL/EN. Keys are the
     // EXACT server profile names (control('profile',{operation:'switch',name})).
-    // EXACTLY two built-in slots. Both use the same Game/Motion action mapping;
-    // Music remains as a named profile slot rather than a separate media vocabulary.
+    // EXACTLY two built-in slots. Both use the same Game/Motion action rows;
+    // Music keeps media-key defaults on those shared rows.
     const GAME_META = {
       en: {
         'Game': { emoji: '\\uD83C\\uDFAE', name: 'Game', desc: 'Tilt, twist, stamp' },
-        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Music', desc: 'Same controls' }
+        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Music', desc: 'Media keys' }
       },
       pl: {
         'Game': { emoji: '\\uD83C\\uDFAE', name: 'Gra', desc: 'Przechył, obrót, stempel' },
-        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Muzyka', desc: 'Te same akcje' }
+        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Muzyka', desc: 'Sterowanie muzyka' }
       }
     };
     function gameMetaFor(name) {

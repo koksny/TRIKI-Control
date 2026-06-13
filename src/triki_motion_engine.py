@@ -229,6 +229,7 @@ class MotionControlEngine:
         invert_fwd: bool = False,
         invert_strafe: bool = False,
         swap_tilt_axes: bool = False,
+        fire_enabled: bool = True,
         observer: Callable[[dict], None] | None = None,
     ) -> None:
         self.alpha_g = alpha_g
@@ -271,6 +272,7 @@ class MotionControlEngine:
         self.invert_fwd = invert_fwd
         self.invert_strafe = invert_strafe
         self.swap_tilt_axes = swap_tilt_axes
+        self.fire_enabled = bool(fire_enabled)
         self._observer = observer
         self._reset_state()
 
@@ -558,6 +560,7 @@ class MotionControlEngine:
                     "values": list(v),
                     "intent": intent,
                     "twist": round(twist, 1),
+                    "yaw": round(twist, 1),
                     "tilt": round(tilt_deg, 2),
                     "spin": round(spin, 1),
                     "accdev": round(accdev, 1),
@@ -695,7 +698,8 @@ class MotionControlEngine:
         # held tilt's bobbing. Dropping these gates fired stamps "almost non-stop"; the
         # earlier no-stamp-after-GO lockout (now gone) was the real miss-regression, NOT
         # these. The impact-freeze + go-counter reset still stop a phantom GO right after.
-        if (vert >= self.stamp_vert_min and spin < self.stamp_spin_max
+        if (self.fire_enabled
+                and vert >= self.stamp_vert_min and spin < self.stamp_spin_max
                 and f_tilt < self.stamp_flat_max
                 and self._stamp_armed and ready):
             self._last_stamp_t = t

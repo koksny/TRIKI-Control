@@ -28,8 +28,7 @@ _logger = logging.getLogger("triki")
 
 # The app ships EXACTLY two built-in profile slots: "Game" (the default) and
 # "Music". Every profile uses the same body-frame Motion engine settings and
-# bindable controls as Game; Music is kept as a selectable slot, not a separate
-# legacy classifier vocabulary.
+# bindable controls as Game; Music keeps media-key defaults on those shared rows.
 GAME_PROFILE_NAME = "Game"
 MUSIC_PROFILE_NAME = "Music"
 DEFAULT_PROFILE_NAME = GAME_PROFILE_NAME
@@ -42,9 +41,10 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # 12->13: scrub-circular dropped (a round cap can't tell a circle from a line); the
 # single surviving scrub-straight is remapped to Space (use/door). The fold drops the
 # now-dead scrub-circular bind from older configs.
-# 13->14: Music and custom profiles now use the same Motion/Game action vocabulary
-# and defaults as Game, dropping the old classifier-only action rows from Advanced.
-CONFIG_VERSION = 14
+# 13->14: Music and custom profiles now use the same Motion/Game action vocabulary,
+# dropping the old classifier-only action rows from Advanced.
+# 14->15: Music keeps the shared Motion rows, but restores media-key defaults.
+CONFIG_VERSION = 15
 MAX_MACRO_DELAY_MS = 5000  # ceiling for a single macro delay step; legit macros use sub-second delays
 
 # Control engines. "classifier" is the old discrete LiveGestureDetector path kept
@@ -415,9 +415,16 @@ def _game_action_map() -> dict[str, ActionBinding]:
 
 
 def _music_action_map() -> dict[str, ActionBinding]:
-    # Music is no longer a separate classifier/media vocabulary. It is a profile
-    # slot with the same action rows/defaults as Game, so Advanced is consistent.
-    return dict(_game_action_map())
+    # Same Motion rows as Game, but media-player defaults so the Music slot remains
+    # useful out of the box after the v14 Advanced-table cleanup.
+    return {
+        "turn-left": ActionBinding.key("volume-down"),
+        "turn-right": ActionBinding.key("volume-up"),
+        "go": ActionBinding.key("media-prev"),
+        "stamp": ActionBinding.key("media-play-pause"),
+        "flip": ActionBinding.key("volume-mute"),
+        "scrub-straight": ActionBinding.key("media-next"),
+    }
 
 
 def default_profile_map() -> dict[str, dict[str, ActionBinding]]:

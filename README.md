@@ -2,7 +2,7 @@
 
 ![TRIKI Control desktop UI](triki-control_screenshot.jpg)
 
-![Version](https://img.shields.io/badge/version-1.0.1-ff2bd6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+![Version](https://img.shields.io/badge/version-1.0.2-ff2bd6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
 **Play PC games by waving a bottle cap around.**
 
@@ -32,7 +32,7 @@ No drivers, no account. One pairing button, a few profiles to tweak, and the cap
 
 The cap is a smooth, round disc with a 6-axis motion sensor (a gyroscope and an accelerometer) and a Bluetooth radio. It has no buttons, no marked front, and no magnetometer, so it genuinely does not know which way it is pointing. TRIKI Control takes the raw motion stream, figures out *what you are doing with it* (twisting? tilting? tapping it on the desk?), and fires a key for each move.
 
-Out of the box it ships with two ready profile slots, **Game** and **Music**. Both use the same tank-style motion controls, and the Advanced panel lets you remap every move to any key, media key, or short macro.
+Out of the box it ships with two ready profile slots, **Game** and **Music**. Both use the same tank-style motion controls; Game defaults to game keys, while Music defaults to volume, track, mute and play/pause media keys. The Advanced panel lets you remap every move to any key, media key, or short macro.
 
 ## Controls
 
@@ -86,7 +86,7 @@ See [Building from source](#building-from-source) if you would rather run the co
 ## Profiles
 
 - **Game** is the tank scheme above, run by the body-frame motion engine. This is the one built and tuned for actually playing through Doom.
-- **Music** is a second built-in profile slot with the same controls and default mappings as Game, so Advanced always shows the same action table regardless of the selected profile.
+- **Music** is a second built-in profile slot with the same controls as Game, but its default mappings are media controls: volume down/up, previous/next track, mute, and play/pause.
 
 Profiles can be selected, edited, exported, imported, reset one at a time, or reset as a whole set. Bindings accept single keys (`w`, `left`, `enter`, `space`, `=`), media keys (`volume-up`, `media-play-pause`), and short macros (`left, 100ms, enter`).
 

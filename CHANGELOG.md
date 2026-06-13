@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Restored media-key defaults for the Music profile while keeping the shared Motion/Game action rows in Advanced.
+- Bumped the config schema so Music settings saved by 1.0.1 reset from accidental Game keys back to media controls.
+- Kept the Windows, macOS and Linux package helpers/tests aligned with the repo-root source layout.
+
 ## 1.0.1
 
 - Refreshed the README screenshot and packaged application icon assets.
