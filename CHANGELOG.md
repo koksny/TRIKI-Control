@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+- Preserved Game/Doom key overrides from 1.0.1 and 1.0.2 configs across the 1.0.4 Motion tuning schema update.
+- Preserved Music key overrides from 1.0.2 configs while still resetting the broken 1.0.1 Music-as-Game defaults.
+- Kept Game's motion thresholds and default Doom controls unchanged from 1.0.1/1.0.2.
+
 ## 1.0.4
 
 - Moved profile-specific threshold tuning to the actual turn/twist threshold instead of the lean threshold.

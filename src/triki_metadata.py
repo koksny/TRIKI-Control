@@ -1,5 +1,5 @@
 APP_NAME = "TRIKI Control"
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 APP_CREATOR = "Wojciech 'Koksny' Górny"
 APP_WEBSITE = "https://koksny.com"
 APP_LICENSE = "MIT License"

@@ -359,6 +359,37 @@ class TrikiActionTests(unittest.TestCase):
         self.assertEqual(config.profiles["Music"]["stamp"].key_name, "space")
         self.assertEqual(config.profiles["Music"]["turn-right"].key_name, "volume-up")
 
+    def test_v1_0_1_and_v1_0_2_game_bindings_survive_config_merge(self):
+        # v1.0.1 (schema 14) and v1.0.2 (schema 15) already used the current
+        # Game/Doom motion rows. Later motion-tuning schema bumps must not erase
+        # a user's Doom key overrides.
+        for version in (14, 15):
+            with self.subTest(version=version):
+                config = TrikiConfig(
+                    version=version,
+                    active_profile="Game",
+                    profiles={"Game": {"stamp": ActionBinding.key("ctrl")}},
+                    actions={"turn-right": ActionBinding.key("d")},
+                ).merged_with_defaults()
+
+                self.assertEqual(config.profiles["Game"]["stamp"].key_name, "ctrl")
+                self.assertEqual(config.actions["turn-right"].key_name, "d")
+                self.assertEqual(config.actions["stamp"].key_name, "ctrl")
+
+    def test_v1_0_2_music_bindings_survive_config_merge(self):
+        # v1.0.2 (schema 15) fixed Music to use media defaults, so user edits
+        # from that version are already safe to preserve.
+        config = TrikiConfig(
+            version=15,
+            active_profile="Music",
+            profiles={"Music": {"stamp": ActionBinding.key("space")}},
+            actions={"turn-left": ActionBinding.key("a")},
+        ).merged_with_defaults()
+
+        self.assertEqual(config.profiles["Music"]["stamp"].key_name, "space")
+        self.assertEqual(config.actions["turn-left"].key_name, "a")
+        self.assertEqual(config.actions["stamp"].key_name, "space")
+
     def test_profile_motion_settings_round_trip_with_config(self):
         config = TrikiConfig(
             active_profile="Music",

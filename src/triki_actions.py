@@ -47,6 +47,11 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # 15->16: Motion tuning gets the first per-profile settings pass.
 # 16->17: profile threshold tuning moves to the turn/twist threshold.
 CONFIG_VERSION = 17
+# Action-map compatibility is narrower than the whole config schema. Later schema
+# bumps for Motion tuning must not erase user key overrides from already-compatible
+# Game/Doom configs.
+GAME_ACTION_OVERRIDE_VERSION = 14
+MUSIC_ACTION_OVERRIDE_VERSION = 15
 MAX_MACRO_DELAY_MS = 5000  # ceiling for a single macro delay step; legit macros use sub-second delays
 MIN_MOTION_TILT_THRESHOLD = 3.0
 MAX_MOTION_TILT_THRESHOLD = 30.0
@@ -217,6 +222,14 @@ def normalize_turn_threshold(value, fallback: float = DEFAULT_GAME_TURN_THRESHOL
         return fallback
 
 
+def can_preserve_builtin_action_overrides(profile_name: str, version: int) -> bool:
+    minimum = {
+        GAME_PROFILE_NAME: GAME_ACTION_OVERRIDE_VERSION,
+        MUSIC_PROFILE_NAME: MUSIC_ACTION_OVERRIDE_VERSION,
+    }.get(normalize_profile_name(profile_name))
+    return minimum is not None and version >= minimum
+
+
 @dataclass(frozen=True)
 class MotionProfileSettings:
     turn_threshold: float = DEFAULT_GAME_TURN_THRESHOLD
@@ -286,12 +299,11 @@ class TrikiConfig:
             normalized = normalize_profile_name(stored_name)
             body = _normalize_action_map(stored_actions)
             if normalized in BUILTIN_PROFILE_NAMES:
-                # User overrides onto a surviving built-in -- but only for a
-                # CURRENT-version config, and only rows in the shared Game/Motion
-                # vocabulary. A pre-vN
-                # built-in body is the OLD scheme/defaults, so it is dropped and the
-                # fresh defaults win (one-time reset on the version bump).
-                if self.version >= CONFIG_VERSION:
+                # User overrides onto a surviving built-in, but only after that
+                # profile's action vocabulary/defaults became compatible with the
+                # current Game/Motion rows. Later non-action schema bumps must not
+                # erase a player's Doom key overrides.
+                if can_preserve_builtin_action_overrides(normalized, self.version):
                     merged_profiles[normalized].update(
                         _only_labels(body, labels_for_profile(normalized))
                     )
@@ -336,13 +348,12 @@ class TrikiConfig:
             )
         # The top-level ``actions`` carries the live (possibly just-edited) bindings
         # of the active profile; fold them on so an in-flight edit survives the
-        # merge -- but ONLY for a current-version config. In a v8 config ``actions``
-        # mirrors the active profile's live edits; in a LEGACY config it is the body
-        # of a dropped legacy profile (e.g. the old 'Default') and must be discarded
-        # so the fresh built-in defaults win.
+        # merge, but only after that profile's action vocabulary is compatible
+        # with the current rows. Older legacy bodies (e.g. old 'Default') are
+        # discarded so fresh built-in defaults win.
         if (
             self.actions
-            and self.version >= CONFIG_VERSION
+            and can_preserve_builtin_action_overrides(active_profile, self.version)
             and active_profile in merged_profiles
         ):
             merged_profiles[active_profile].update(
