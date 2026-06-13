@@ -27,8 +27,8 @@ A few habits make the difference between "fighting it" and "playing it":
 
 In **Advanced**, for any profile:
 
-- **Lean engage:** how far you have to tilt before it walks. Lower is touchier.
-- **Turn sensitivity:** how hard you have to twist before it turns. These Motion tuning values are saved per profile, so Game can stay steady while Music can be much more sensitive for volume control.
+- **Turn threshold:** how strong the twist has to be before it counts as a turn. Lower is touchier.
+- **Turn sensitivity:** how forgiving the turn detector is for slower or less-perfect twists. These turn tuning values are saved per profile, so Game can stay steady while Music can be much more sensitive for volume control.
 
 Every row in **Action Mapping** can be rebound to any key, media key, or short macro. The Game control labels are `turn-left` and `turn-right` (turn), `go` (walk), `stamp` (fire), `flip` (run), and `scrub-straight` (use/door).
 

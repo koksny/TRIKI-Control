@@ -302,18 +302,29 @@ class MotionControlEngine:
     def tilt_off(self, value: float) -> None:
         self.lean_off = self._deg_to_units(value)
 
-    # Turn sensitivity 0..100 (the Advanced slider): higher % == lower twist
-    # thresholds == the cap turns on a gentler twist. The maintainer found the cap
-    # too touchy, so the default sits low.
+    # Turn threshold is the vertical-twist magnitude that starts a turn. It is
+    # separate from sensitivity so Music can use a lower knob threshold without
+    # changing the Game steering defaults.
+    @property
+    def turn_threshold(self) -> float:
+        return round(max(400.0, min(1600.0, float(self.twist_on))), 0)
+
+    def set_turn_threshold(self, value) -> None:
+        value = max(400.0, min(1600.0, float(value)))
+        self.twist_on = value
+        self.twist_off = self.twist_on * 0.69    # release quickly (no over-rotation)
+
+    # Turn sensitivity 0..100 (the Advanced slider): higher % == a lower total-spin
+    # gate and a more forgiving vertical-axis ratio. It does NOT rewrite the twist
+    # threshold; that is the separate turn_threshold slider.
     @property
     def turn_sensitivity(self) -> float:
-        return round(max(0.0, min(100.0, (1600.0 - self.twist_on) / 12.0)), 0)
+        return round(max(0.0, min(100.0, (1300.0 - self.turn_spin_on) / 10.0)), 0)
 
     def set_turn_sensitivity(self, pct) -> None:
         pct = max(0.0, min(100.0, float(pct)))
-        self.twist_on = 1600.0 - pct * 12.0      # 0% -> 1600 (stiff), 100% -> 400 (touchy)
-        self.twist_off = self.twist_on * 0.69    # release quickly (no over-rotation)
         self.turn_spin_on = 1300.0 - pct * 10.0  # 0% -> 1300, 100% -> 300
+        self.turn_axis_frac = 0.75 - pct * 0.004 # 50% -> 0.55 (current Game default)
 
     def _reset_state(self) -> None:
         self._g: list[float] | None = None

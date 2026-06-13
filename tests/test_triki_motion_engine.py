@@ -303,6 +303,22 @@ def _dominant_move_label(labels):
 # A) TURN: pure-yaw twist, orientation-invariance (the turn acceptance gate).
 # --------------------------------------------------------------------------- #
 class YawTurnInvarianceTests(unittest.TestCase):
+    def test_turn_threshold_is_independent_from_turn_sensitivity(self):
+        engine = MotionControlEngine()
+
+        engine.set_turn_sensitivity(85)
+
+        self.assertEqual(engine.turn_sensitivity, 85)
+        self.assertEqual(engine.turn_threshold, 1000.0)
+
+        engine.set_turn_threshold(580)
+
+        self.assertEqual(engine.turn_threshold, 580.0)
+        self.assertEqual(engine.turn_sensitivity, 85)
+        self.assertEqual(engine.twist_on, 580.0)
+        self.assertAlmostEqual(engine.twist_off, 400.2)
+        self.assertEqual(engine.turn_spin_on, 450.0)
+
     def test_pure_yaw_engages_a_single_consistent_turn_and_move_silent(self):
         # At rest gravity reads (0,0,-G) so g_hat ~ (0,0,-1); a +c gyro spin
         # projects to yaw = dot((0,0,+rate),(0,0,-1)) < 0 -> the engine maps it to

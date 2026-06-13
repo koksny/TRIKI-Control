@@ -2,7 +2,7 @@
 
 ![TRIKI Control desktop UI](triki-control_screenshot.jpg)
 
-![Version](https://img.shields.io/badge/version-1.0.3-ff2bd6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+![Version](https://img.shields.io/badge/version-1.0.4-ff2bd6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
 **Play PC games by waving a bottle cap around.**
 
@@ -51,7 +51,7 @@ Two tips that make it click:
 - **Steer and walk are separate moves.** Twist *or* tilt, not both at once. Twist to aim, then tilt to go. It feels like driving a tank, because it basically is one.
 - **Shoot clean.** A fire-tap is a flat, straight-down knock on the table. If you twist while you tap, the cap reads it as a turn instead, so keep the tap square.
 
-Every binding is editable in **Advanced > Action Mapping**, and the Motion tuning sliders are saved per profile. Game can stay steady for steering, while Music can use a more sensitive twist pickup for volume control.
+Every binding is editable in **Advanced > Action Mapping**, and the turn tuning sliders are saved per profile. Game can keep the steady steering threshold, while Music can use a lower twist threshold for volume control.
 
 ## Why does it steer like a tank?
 

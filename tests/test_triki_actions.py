@@ -108,7 +108,8 @@ class TrikiActionTests(unittest.TestCase):
         game = default_motion_settings_for_profile("Game")
         music = default_motion_settings_for_profile("Music")
 
-        self.assertEqual(game.tilt_threshold, music.tilt_threshold)
+        self.assertEqual(game.turn_threshold, 1000.0)
+        self.assertLess(music.turn_threshold, game.turn_threshold)
         self.assertEqual(game.turn_sensitivity, 50.0)
         self.assertGreater(music.turn_sensitivity, game.turn_sensitivity)
 
@@ -362,8 +363,8 @@ class TrikiActionTests(unittest.TestCase):
         config = TrikiConfig(
             active_profile="Music",
             profile_settings={
-                "Game": MotionProfileSettings(tilt_threshold=8.0, turn_sensitivity=50.0),
-                "Music": MotionProfileSettings(tilt_threshold=5.5, turn_sensitivity=92.0),
+                "Game": MotionProfileSettings(turn_threshold=1000.0, turn_sensitivity=50.0),
+                "Music": MotionProfileSettings(turn_threshold=580.0, turn_sensitivity=92.0),
             },
         ).merged_with_defaults()
 
@@ -373,26 +374,27 @@ class TrikiActionTests(unittest.TestCase):
             raw = json.loads(path.read_text(encoding="utf-8"))
             loaded = load_config(path)
 
-        self.assertEqual(raw["profile_settings"]["Music"]["tilt_threshold"], 5.5)
+        self.assertEqual(raw["profile_settings"]["Music"]["turn_threshold"], 580.0)
+        self.assertNotIn("tilt_threshold", raw["profile_settings"]["Music"])
         self.assertEqual(raw["profile_settings"]["Music"]["turn_sensitivity"], 92.0)
         self.assertEqual(loaded.profile_settings["Game"].turn_sensitivity, 50.0)
-        self.assertEqual(loaded.profile_settings["Music"].tilt_threshold, 5.5)
+        self.assertEqual(loaded.profile_settings["Music"].turn_threshold, 580.0)
 
     def test_profile_motion_settings_are_clamped(self):
         settings = MotionProfileSettings.from_dict(
-            {"tilt_threshold": 99, "turn_sensitivity": -20}
+            {"turn_threshold": 9999, "turn_sensitivity": -20}
         )
 
-        self.assertEqual(settings.tilt_threshold, 30.0)
+        self.assertEqual(settings.turn_threshold, 1600.0)
         self.assertEqual(settings.turn_sensitivity, 0.0)
 
     def test_partial_music_motion_settings_keep_music_fallbacks(self):
         config = TrikiConfig(
             version=CONFIG_VERSION,
-            profile_settings={"Music": {"tilt_threshold": 6.0}},
+            profile_settings={"Music": {"turn_threshold": 620.0}},
         ).merged_with_defaults()
 
-        self.assertEqual(config.profile_settings["Music"].tilt_threshold, 6.0)
+        self.assertEqual(config.profile_settings["Music"].turn_threshold, 620.0)
         self.assertEqual(
             config.profile_settings["Music"].turn_sensitivity,
             default_motion_settings_for_profile("Music").turn_sensitivity,
@@ -401,7 +403,7 @@ class TrikiActionTests(unittest.TestCase):
     def test_invalid_music_motion_settings_keep_music_fallbacks(self):
         config = TrikiConfig(
             version=CONFIG_VERSION,
-            profile_settings={"Music": {"tilt_threshold": "bad", "turn_sensitivity": "bad"}},
+            profile_settings={"Music": {"turn_threshold": "bad", "turn_sensitivity": "bad"}},
         ).merged_with_defaults()
 
         self.assertEqual(config.profile_settings["Music"], default_motion_settings_for_profile("Music"))

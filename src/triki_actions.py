@@ -44,12 +44,17 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # 13->14: Music and custom profiles now use the same Motion/Game action vocabulary,
 # dropping the old classifier-only action rows from Advanced.
 # 14->15: Music keeps the shared Motion rows, but restores media-key defaults.
-# 15->16: Motion tuning gets per-profile settings for lean threshold and turn sensitivity.
-CONFIG_VERSION = 16
+# 15->16: Motion tuning gets the first per-profile settings pass.
+# 16->17: profile threshold tuning moves to the turn/twist threshold.
+CONFIG_VERSION = 17
 MAX_MACRO_DELAY_MS = 5000  # ceiling for a single macro delay step; legit macros use sub-second delays
 MIN_MOTION_TILT_THRESHOLD = 3.0
 MAX_MOTION_TILT_THRESHOLD = 30.0
 DEFAULT_MOTION_TILT_THRESHOLD = 7.6
+MIN_MOTION_TURN_THRESHOLD = 400.0
+MAX_MOTION_TURN_THRESHOLD = 1600.0
+DEFAULT_GAME_TURN_THRESHOLD = 1000.0
+DEFAULT_MUSIC_TURN_THRESHOLD = 580.0
 DEFAULT_GAME_TURN_SENSITIVITY = 50.0
 DEFAULT_MUSIC_TURN_SENSITIVITY = 85.0
 
@@ -205,9 +210,16 @@ def normalize_tilt_threshold(value, fallback: float = DEFAULT_MOTION_TILT_THRESH
         return fallback
 
 
+def normalize_turn_threshold(value, fallback: float = DEFAULT_GAME_TURN_THRESHOLD) -> float:
+    try:
+        return round(max(MIN_MOTION_TURN_THRESHOLD, min(MAX_MOTION_TURN_THRESHOLD, float(value))), 0)
+    except (TypeError, ValueError):
+        return fallback
+
+
 @dataclass(frozen=True)
 class MotionProfileSettings:
-    tilt_threshold: float = DEFAULT_MOTION_TILT_THRESHOLD
+    turn_threshold: float = DEFAULT_GAME_TURN_THRESHOLD
     turn_sensitivity: float = DEFAULT_GAME_TURN_SENSITIVITY
 
     @classmethod
@@ -220,15 +232,15 @@ class MotionProfileSettings:
         fallback = fallback or cls()
         if isinstance(data, MotionProfileSettings):
             return cls(
-                tilt_threshold=normalize_tilt_threshold(data.tilt_threshold, fallback.tilt_threshold),
+                turn_threshold=normalize_turn_threshold(data.turn_threshold, fallback.turn_threshold),
                 turn_sensitivity=normalize_turn_sensitivity(data.turn_sensitivity, fallback.turn_sensitivity),
             )
         if not isinstance(data, dict):
             return fallback
         return cls(
-            tilt_threshold=normalize_tilt_threshold(
-                data.get("tilt_threshold", fallback.tilt_threshold),
-                fallback.tilt_threshold,
+            turn_threshold=normalize_turn_threshold(
+                data.get("turn_threshold", fallback.turn_threshold),
+                fallback.turn_threshold,
             ),
             turn_sensitivity=normalize_turn_sensitivity(
                 data.get("turn_sensitivity", fallback.turn_sensitivity),
@@ -238,7 +250,7 @@ class MotionProfileSettings:
 
     def to_dict(self) -> dict[str, float]:
         return {
-            "tilt_threshold": normalize_tilt_threshold(self.tilt_threshold),
+            "turn_threshold": normalize_turn_threshold(self.turn_threshold),
             "turn_sensitivity": normalize_turn_sensitivity(self.turn_sensitivity),
         }
 
@@ -530,11 +542,11 @@ def default_motion_settings_for_profile(profile_name: str) -> MotionProfileSetti
     normalized = normalize_profile_name(profile_name)
     if normalized == MUSIC_PROFILE_NAME:
         return MotionProfileSettings(
-            tilt_threshold=DEFAULT_MOTION_TILT_THRESHOLD,
+            turn_threshold=DEFAULT_MUSIC_TURN_THRESHOLD,
             turn_sensitivity=DEFAULT_MUSIC_TURN_SENSITIVITY,
         )
     return MotionProfileSettings(
-        tilt_threshold=DEFAULT_MOTION_TILT_THRESHOLD,
+        turn_threshold=DEFAULT_GAME_TURN_THRESHOLD,
         turn_sensitivity=DEFAULT_GAME_TURN_SENSITIVITY,
     )
 

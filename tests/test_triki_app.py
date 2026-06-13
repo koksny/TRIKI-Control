@@ -1935,6 +1935,7 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         engine = MotionControlEngine()
         session.set_motion_engine(engine)
+        default_tilt_on = engine.tilt_on
 
         game_snap = handle_control(
             session,
@@ -1945,13 +1946,23 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(game_snap["motion"]["turn_sensitivity"], 44)
         self.assertEqual(session.config.profile_settings["Game"].turn_sensitivity, 44.0)
+        game_snap = handle_control(
+            session,
+            "turn-threshold",
+            {"value": 1000},
+            bus=EventBus(),
+            connection_control=ConnectionControl(manual_pairing=True),
+        )
+        self.assertEqual(game_snap["motion"]["turn_threshold"], 1000)
+        self.assertEqual(session.config.profile_settings["Game"].turn_threshold, 1000.0)
+        self.assertEqual(engine.tilt_on, default_tilt_on)
 
         session.switch_profile("Music")
         self.assertGreater(engine.turn_sensitivity, 44.0)
         music_snap = handle_control(
             session,
-            "tilt",
-            {"threshold": 5.5},
+            "turn-threshold",
+            {"value": 580},
             bus=EventBus(),
             connection_control=ConnectionControl(manual_pairing=True),
         )
@@ -1962,26 +1973,29 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
             bus=EventBus(),
             connection_control=ConnectionControl(manual_pairing=True),
         )
-        self.assertEqual(music_snap["motion"]["tilt_on"], 5.5)
+        self.assertEqual(music_snap["motion"]["turn_threshold"], 580)
         self.assertEqual(music_snap["motion"]["turn_sensitivity"], 92)
-        self.assertEqual(session.config.profile_settings["Music"].tilt_threshold, 5.5)
+        self.assertEqual(session.config.profile_settings["Music"].turn_threshold, 580.0)
+        self.assertEqual(engine.tilt_on, default_tilt_on)
 
         session.switch_profile("Game")
         self.assertEqual(engine.turn_sensitivity, 44)
-        self.assertNotEqual(engine.tilt_on, 5.5)
+        self.assertEqual(engine.turn_threshold, 1000)
+        self.assertEqual(engine.tilt_on, default_tilt_on)
         session.switch_profile("Music")
         self.assertEqual(engine.turn_sensitivity, 92)
-        self.assertEqual(engine.tilt_on, 5.5)
+        self.assertEqual(engine.turn_threshold, 580)
+        self.assertEqual(engine.tilt_on, default_tilt_on)
 
     def test_build_detector_applies_active_profile_motion_settings(self):
         config = TrikiConfig(
             active_profile="Music",
-            profile_settings={"Music": MotionProfileSettings(tilt_threshold=5.0, turn_sensitivity=95.0)},
+            profile_settings={"Music": MotionProfileSettings(turn_threshold=560.0, turn_sensitivity=95.0)},
         ).merged_with_defaults()
 
         detector = build_detector(config, self._args())
 
-        self.assertEqual(detector.tilt_on, 5.0)
+        self.assertEqual(detector.turn_threshold, 560.0)
         self.assertEqual(detector.turn_sensitivity, 95.0)
 
     def test_no_calibrate_control_action(self):
@@ -1998,23 +2012,23 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
 
 
 class TiltControlHtmlTests(unittest.TestCase):
-    def test_html_exposes_tilt_block_with_threshold_and_no_calibration(self):
+    def test_html_exposes_turn_tuning_separate_from_tilt_readout(self):
         html = build_html()
 
-        # The body-frame Tilt block, toggled by state.engine == 'motion' (Game).
+        # The body-frame Motion block is toggled by state.engine == 'motion',
+        # but profile-specific tuning is for TURN, not the lean threshold.
         self.assertIn('id="tilt-section"', html)
-        self.assertIn('id="tilt-threshold"', html)
+        self.assertIn('id="turn-threshold"', html)
+        self.assertIn("control('turn-threshold'", html)
         self.assertIn('id="engine-name"', html)
         self.assertIn("function renderTilt", html)
         self.assertIn("renderTilt()", html)
         self.assertIn("state.engine) === 'motion'", html)
-        # The threshold control posts the 'tilt' action; live body-frame readout.
-        self.assertIn("control('tilt'", html)
         self.assertIn("control('turn-sensitivity'", html)
         self.assertIn('id="motion-hd"', html)
         self.assertIn('id="motion-he"', html)
         self.assertIn('id="motion-tilt"', html)
-        self.assertIn("profile-specific", html)
+        self.assertIn("profile-specific TURN", html)
         # Twist/lean copy is present; NO calibration / heading machinery survives.
         self.assertIn("twist", html.lower())
         self.assertIn("lean", html.lower())
@@ -2085,14 +2099,14 @@ class AdvancedOverlayUiTests(unittest.TestCase):
     def test_advanced_panel_preserves_all_backend_control_ids(self):
         # Moving Advanced out of the grid must keep every element id the rest of
         # the UI / id-based tests rely on. The hold/game-mode + calibrate ids are
-        # GONE (the Game profile auto-holds; there is no calibration); the tilt
-        # block replaces the old motion-control section.
+        # GONE (the Game profile auto-holds; there is no calibration); the Motion
+        # block exposes profile-specific turn tuning.
         html = build_html()
         for element_id in (
             'id="profile-select"', 'id="new-profile-name"', 'id="create-profile"',
             'id="delete-profile"', 'id="reset-profile"', 'id="export-profiles"',
             'id="import-profiles"', 'id="reset-all-profiles"', 'id="import-profile-file"',
-            'id="actions"', 'id="tilt-section"', 'id="tilt-threshold"', 'id="engine-name"',
+            'id="actions"', 'id="tilt-section"', 'id="turn-threshold"', 'id="engine-name"',
         ):
             self.assertIn(element_id, html)
         # The removed hold/game-mode + calibrate controls are gone for good.
@@ -2162,7 +2176,7 @@ class I18nUiTests(unittest.TestCase):
         # Representative Polish copy is present (PL-default, not just English).
         self.assertIn("Połącz TRIKI", html)
         self.assertIn("Zaawansowane", html)
-        self.assertIn("Sterowanie przechyłem", html)  # Tilt control (PL)
+        self.assertIn("Sterowanie obrotem", html)  # Turn control (PL)
         # No leftover Polish calibration copy (calibration is gone entirely).
         self.assertNotIn("Skalibruj przód", html)
 

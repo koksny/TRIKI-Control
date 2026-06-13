@@ -31,6 +31,7 @@ from triki_actions import (
     normalize_lang,
     normalize_profile_name,
     normalize_tilt_threshold,
+    normalize_turn_threshold,
     normalize_turn_sensitivity,
     parse_macro_text,
     save_config,
@@ -78,18 +79,12 @@ def apply_motion_profile_settings(engine, settings) -> None:
     if engine is None:
         return
     try:
-        if hasattr(engine, "tilt_on"):
-            ratio = 0.6
-            old_on = float(getattr(engine, "tilt_on", 0.0) or 0.0)
-            old_off = float(getattr(engine, "tilt_off", 0.0) or 0.0)
-            if old_on > 0:
-                ratio = max(0.2, min(0.9, old_off / old_on))
-            engine.tilt_on = settings.tilt_threshold
-            if hasattr(engine, "tilt_off"):
-                engine.tilt_off = round(settings.tilt_threshold * ratio, 2)
         setter = getattr(engine, "set_turn_sensitivity", None)
         if setter is not None:
             setter(settings.turn_sensitivity)
+        threshold_setter = getattr(engine, "set_turn_threshold", None)
+        if threshold_setter is not None:
+            threshold_setter(settings.turn_threshold)
     except Exception:
         pass
 
@@ -145,13 +140,13 @@ class AppSession:
             default_motion_settings_for_profile(self.config.active_profile),
         )
 
-    def _set_active_motion_settings_locked(self, *, tilt_threshold=None, turn_sensitivity=None) -> None:
+    def _set_active_motion_settings_locked(self, *, turn_threshold=None, turn_sensitivity=None) -> None:
         current = self._active_motion_settings_locked()
         self.config.profile_settings[self.config.active_profile] = type(current)(
-            tilt_threshold=(
-                normalize_tilt_threshold(tilt_threshold)
-                if tilt_threshold is not None
-                else current.tilt_threshold
+            turn_threshold=(
+                normalize_turn_threshold(turn_threshold, current.turn_threshold)
+                if turn_threshold is not None
+                else current.turn_threshold
             ),
             turn_sensitivity=(
                 normalize_turn_sensitivity(turn_sensitivity)
@@ -223,10 +218,35 @@ class AppSession:
         attached (the classifier path has no tilt threshold)."""
         value = normalize_tilt_threshold(threshold)
         with self._lock:
-            self._set_active_motion_settings_locked(tilt_threshold=value)
+            engine = self._motion_engine
+        if engine is not None and hasattr(engine, "tilt_on"):
+            try:
+                ratio = 0.6
+                old_on = float(getattr(engine, "tilt_on", 0.0) or 0.0)
+                old_off = float(getattr(engine, "tilt_off", 0.0) or 0.0)
+                if old_on > 0:
+                    ratio = max(0.2, min(0.9, old_off / old_on))
+                engine.tilt_on = value
+                if hasattr(engine, "tilt_off"):
+                    engine.tilt_off = round(value * ratio, 2)
+            except Exception:
+                pass
+        with self._lock:
+            if self.logger is not None:
+                self.logger.log("tilt", {"threshold": value})
+            return self.snapshot()
+
+    def set_turn_threshold(self, value) -> dict:
+        """Set the Motion engine's TURN engage threshold in raw gyro units.
+
+        Lower values make a twist count sooner; this is profile-specific and
+        independent from the lean/tilt threshold."""
+        value = normalize_turn_threshold(value)
+        with self._lock:
+            self._set_active_motion_settings_locked(turn_threshold=value)
             self._apply_motion_settings_locked()
             if self.logger is not None:
-                self.logger.log("tilt", {"threshold": value, "profile": self.config.active_profile})
+                self.logger.log("turn_threshold", {"value": value, "profile": self.config.active_profile})
             self._save_config()
             return self.snapshot()
 
@@ -496,7 +516,8 @@ class AppSession:
             "hd": round(float(getattr(engine, "_last_hd", 0.0)), 1),
             "he": round(float(getattr(engine, "_last_he", 0.0)), 1),
             "tilt": round(float(getattr(engine, "_last_tilt", 0.0)), 1),
-            "tilt_on": round(float(getattr(engine, "tilt_on", settings.tilt_threshold)), 1),
+            "tilt_on": round(float(getattr(engine, "tilt_on", 7.6)), 1),
+            "turn_threshold": round(float(getattr(engine, "turn_threshold", settings.turn_threshold)), 0),
             "turn_sensitivity": round(float(getattr(engine, "turn_sensitivity", settings.turn_sensitivity)), 0),
             "direction": str(getattr(engine, "_last_direction", "idle")),
             "fire": bool(getattr(engine, "_last_fire", False)),
@@ -642,6 +663,8 @@ def handle_control(
         return session.set_hold_ms(payload.get("ms", 0))
     if action == "tilt":
         return session.set_tilt_threshold(payload.get("threshold"))
+    if action == "turn-threshold":
+        return session.set_turn_threshold(payload.get("value"))
     if action == "turn-sensitivity":
         return session.set_turn_sensitivity(payload.get("value"))
     if action == "lang":
@@ -1470,8 +1493,8 @@ def build_html() -> str:
     .row label { font-size: 13px; color: var(--muted); font-weight: 700; }
     .profile-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
-    /* Body-frame TILT settings (Game profile): just the editable lean threshold +
-       a live body-frame read. No calibrate, no heading. */
+    /* Body-frame Motion settings: profile-specific TURN tuning plus a live
+       body-frame tilt read. No calibrate, no heading. */
     .motion-help { color: var(--muted); font-size: 12px; line-height: 1.4; margin-bottom: 10px; }
     .motion-help strong { color: var(--cyan); }
     .tilt-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
@@ -1673,12 +1696,11 @@ def build_html() -> str:
             </div>
           </section>
 
-          <!-- profile-specific TILT/TURN settings (body-frame Motion engine). NO
+          <!-- profile-specific TURN settings (body-frame Motion engine). NO
                calibrate button, NO heading -- neutral is auto-captured at connect
-               and re-centred when the cap is still. Just the lean engage threshold
-               (editable) + a live read of the body-frame lean. The tilt->key binds
-               themselves live in the Action Mapping rows below (Tilt Forward/Back,
-               Strafe). Hidden only for legacy non-motion states. -->
+               and re-centred when the cap is still. The live tilt readout is
+               diagnostic only; profile tuning here applies to twist/turn. Hidden
+               only for legacy non-motion states. -->
           <section class="adv-section tilt-section" id="tilt-section" hidden>
             <h2 data-i18n="adv.tilt">Tilt control</h2>
             <p class="motion-help">
@@ -1686,9 +1708,9 @@ def build_html() -> str:
               <span data-i18n="tilt.help">Twist the cap in place to turn; lean it past the threshold and hold to walk. Neutral is wherever the cap lies when you connect &mdash; no calibration. Re-centre by leaving the cap still for ~1.5 s. Strafe (sideways lean) is best-effort &mdash; remap it in the rows below.</span>
             </p>
             <div class="tilt-controls">
-              <label for="tilt-threshold" data-i18n="tilt.threshold">Lean engage</label>
-              <input type="range" id="tilt-threshold" min="3" max="30" step="0.1" value="7.6" style="flex:1 1 160px;"> <code id="tilt-threshold-val">7.6</code><span>&deg;</span>
-              <span class="tilt-hint" data-i18n="tilt.thresholdHint">Saved per profile. Lower = touchier.</span>
+              <label for="turn-threshold" data-i18n="turn.threshold">Turn threshold</label>
+              <input type="range" id="turn-threshold" min="400" max="1600" step="10" value="1000" style="flex:1 1 160px;"> <code id="turn-threshold-val">1000</code>
+              <span class="tilt-hint" data-i18n="turn.thresholdHint">Saved per profile. Lower = the twist engages sooner.</span>
             </div>
             <div class="tilt-controls">
               <label for="turn-sensitivity" data-i18n="turn.sensitivity">Turn sensitivity</label>
@@ -1790,11 +1812,11 @@ def build_html() -> str:
         'adv.new': 'Nowy', 'adv.delete': 'Usuń', 'adv.reset': 'Reset', 'adv.export': 'Eksport',
         'adv.import': 'Import', 'adv.resetAll': 'Resetuj wszystko',
         'adv.actionMapping': 'Mapowanie akcji',
-        'adv.tilt': 'Sterowanie przechyłem',
+        'adv.tilt': 'Sterowanie obrotem',
         'motion.activeEngine': 'Aktywny silnik:',
-        'tilt.help': 'Obróć kapsel płasko w miejscu, aby skręcić; przechyl go i przytrzymaj, aby iść do przodu. Stempel w dół = strzał, obrót do góry dnem = Shift, płaski przesuw po stole = użyj/drzwi. Neutral to po prostu jak kapsel leży po połączeniu \\u2014 bez kalibracji. Kierunki i progi zmienisz w wierszach poniżej.',
-        'tilt.threshold': 'Próg przechyłu', 'tilt.thresholdHint': 'Zapisywane osobno dla profilu. Mniej = czulej.',
-        'turn.sensitivity': 'Czułość obrotu', 'turn.sensitivityHint': 'Zapisywane osobno dla profilu. Wyżej = łapie delikatniejszy obrót.',
+        'tilt.help': 'Obróć kapsel płasko w miejscu, aby skręcić; przechyl go i przytrzymaj, aby iść do przodu. Suwaki poniżej dotyczą obrotu, a nie progu przechyłu. Neutral to po prostu jak kapsel leży po połączeniu \\u2014 bez kalibracji.',
+        'turn.threshold': 'Próg obrotu', 'turn.thresholdHint': 'Zapisywane osobno dla profilu. Niżej = obrót łapie szybciej.',
+        'turn.sensitivity': 'Czułość obrotu', 'turn.sensitivityHint': 'Zapisywane osobno dla profilu. Wyżej = bardziej wybacza wolny lub niedoskonały obrót.',
         'tilt.live.fwd': 'Przód/tył', 'tilt.live.side': 'Bok', 'tilt.live.lean': 'Przechył', 'tilt.live.dir': 'Kierunek',
         'about.tagline': 'Kręć kapslem. Graj. Baw się dobrze!', 'about.close': 'Zamknij'
       },
@@ -1813,11 +1835,11 @@ def build_html() -> str:
         'adv.new': 'New', 'adv.delete': 'Delete', 'adv.reset': 'Reset', 'adv.export': 'Export',
         'adv.import': 'Import', 'adv.resetAll': 'Reset All',
         'adv.actionMapping': 'Action Mapping',
-        'adv.tilt': 'Tilt control',
+        'adv.tilt': 'Turn control',
         'motion.activeEngine': 'Active engine:',
-        'tilt.help': "Twist the cap in place to turn; lean it past the threshold and hold to walk. Neutral is wherever the cap lies when you connect \\u2014 no calibration. Re-centre by leaving the cap still for ~1.5 s. Strafe (sideways lean) is best-effort \\u2014 remap it in the rows below.",
-        'tilt.threshold': 'Lean engage', 'tilt.thresholdHint': 'Saved per profile. Lower = touchier.',
-        'turn.sensitivity': 'Turn sensitivity', 'turn.sensitivityHint': 'Saved per profile. Higher = gentler twist pickup.',
+        'tilt.help': "Twist the cap in place to turn; lean it and hold to walk. The sliders below tune turn/twist, not the lean threshold. Neutral is wherever the cap lies when you connect \\u2014 no calibration.",
+        'turn.threshold': 'Turn threshold', 'turn.thresholdHint': 'Saved per profile. Lower = twist engages sooner.',
+        'turn.sensitivity': 'Turn sensitivity', 'turn.sensitivityHint': 'Saved per profile. Higher = more forgiving slow or imperfect twists.',
         'tilt.live.fwd': 'Forward/back', 'tilt.live.side': 'Side', 'tilt.live.lean': 'Lean', 'tilt.live.dir': 'Direction',
         'about.tagline': 'Spin the cap. Play the game. Have fun!', 'about.close': 'Close'
       }
@@ -1996,8 +2018,8 @@ def build_html() -> str:
     }
 
     function renderTilt() {
-      // Surface the body-frame TILT settings when engine == 'motion'. NO calibrate,
-      // NO heading -- just the editable lean threshold + a live body-frame read.
+      // Surface profile-specific TURN tuning when engine == 'motion'. NO calibrate,
+      // NO heading -- the tilt values below are a live diagnostic read.
       // Legacy classifier states hide this block.
       const isMotion = (state && state.engine) === 'motion';
       const section = document.getElementById('tilt-section');
@@ -2010,14 +2032,14 @@ def build_html() -> str:
       setText('motion-hd', Number.isFinite(m.hd) ? m.hd : 0);
       setText('motion-tilt', (Number.isFinite(m.tilt) ? m.tilt : 0) + '\\u00B0');
       setText('motion-direction', m.direction || 'idle');
-      // Seed the threshold input from the engine's live tilt_on unless the
-      // grown-up is mid-edit (don't clobber a value being typed).
-      const thr = document.getElementById('tilt-threshold');
-      const thv = document.getElementById('tilt-threshold-val');
-      if (thr && document.activeElement !== thr && Number.isFinite(m.tilt_on) && m.tilt_on > 0) {
-        thr.value = m.tilt_on;
+      // Seed the profile-specific TURN threshold unless the grown-up is mid-edit
+      // (don't clobber a value being dragged).
+      const thr = document.getElementById('turn-threshold');
+      const thv = document.getElementById('turn-threshold-val');
+      if (thr && document.activeElement !== thr && Number.isFinite(m.turn_threshold) && m.turn_threshold > 0) {
+        thr.value = m.turn_threshold;
       }
-      if (thv && Number.isFinite(m.tilt_on) && m.tilt_on > 0) thv.textContent = m.tilt_on;
+      if (thv && Number.isFinite(m.turn_threshold) && m.turn_threshold > 0) thv.textContent = m.turn_threshold;
       const ts = document.getElementById('turn-sensitivity');
       const tsv = document.getElementById('turn-sensitivity-val');
       if (ts && document.activeElement !== ts && Number.isFinite(m.turn_sensitivity)) {
@@ -2321,16 +2343,16 @@ def build_html() -> str:
     document.getElementById('reset-all-profiles').addEventListener('click', () => {
       if (window.confirm('Reset all profiles?')) control('profile', { operation: 'reset-all' });
     });
-    // Tilt threshold (body-frame lean engage, degrees). Updates the live Motion
-    // engine's tilt_on (and its release threshold proportionally) on the server.
-    const tiltThresholdInput = document.getElementById('tilt-threshold');
-    if (tiltThresholdInput) {
-      const thv = document.getElementById('tilt-threshold-val');
-      tiltThresholdInput.addEventListener('input', () => {
-        if (thv) thv.textContent = tiltThresholdInput.value;
+    // Turn threshold (raw gyro units). Saved per profile; lower values engage a
+    // twist sooner. This is not the lean/tilt threshold.
+    const turnThresholdInput = document.getElementById('turn-threshold');
+    if (turnThresholdInput) {
+      const thv = document.getElementById('turn-threshold-val');
+      turnThresholdInput.addEventListener('input', () => {
+        if (thv) thv.textContent = turnThresholdInput.value;
       });
-      tiltThresholdInput.addEventListener('change', () => {
-        control('tilt', { threshold: parseFloat(tiltThresholdInput.value) });
+      turnThresholdInput.addEventListener('change', () => {
+        control('turn-threshold', { value: parseFloat(turnThresholdInput.value) });
       });
     }
     // Turn sensitivity slider (0..100): lower = the cap must twist more to turn.
@@ -3017,9 +3039,7 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
         observer=(lambda rec: session_logger.log("gesture", rec)) if session_logger else None,
     )
     # Hand the live MOTION engine to the session so snapshot() can surface its body-
-    # frame tilt diagnostics (hd/he/tilt/fire) and the 'tilt' control can adjust its
-    # lean threshold (the diagnostics only apply to the Game profile, which is fine --
-    # the tilt panel is hidden for the classifier path anyway).
+    # frame tilt diagnostics (hd/he/tilt/fire) and the profile-specific turn tuning.
     session.set_motion_engine(detector.motion)
     if session_logger is not None:
         session_logger.log("session_start", {

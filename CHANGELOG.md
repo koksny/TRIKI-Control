@@ -1,10 +1,16 @@
 # Changelog
 
+## 1.0.4
+
+- Moved profile-specific threshold tuning to the actual turn/twist threshold instead of the lean threshold.
+- Added a separate Turn threshold slider next to Turn sensitivity in Advanced, with Game keeping the old 1000 default and Music using a lower 580 default.
+- Kept the volume-knob media tap repeat from 1.0.3, while making Music's twist detection easier to tune without changing Game steering.
+
 ## 1.0.3
 
 - Made volume up/down behave like repeated media-key taps while twisting, instead of being swallowed by the keyboard hold bridge.
-- Added per-profile Motion tuning for lean threshold and turn sensitivity, with Music defaulting to a more sensitive twist pickup than Game.
-- Changed the lean threshold control in Advanced to a slider and persisted Motion tuning through config export/import.
+- Added the first pass of per-profile Motion tuning for Music/Game.
+- Persisted Motion tuning through config export/import.
 
 ## 1.0.2
 
