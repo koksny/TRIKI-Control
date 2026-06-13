@@ -18,6 +18,7 @@ from triki_actions import (
     ActionBinding,
     ActionExecutor,
     ActionStep,
+    MotionProfileSettings,
     TrikiConfig,
 )
 from triki_app import (
@@ -1930,6 +1931,59 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(snap["status"], "idle")
 
+    def test_motion_tuning_controls_are_profile_specific(self):
+        session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
+        engine = MotionControlEngine()
+        session.set_motion_engine(engine)
+
+        game_snap = handle_control(
+            session,
+            "turn-sensitivity",
+            {"value": 44},
+            bus=EventBus(),
+            connection_control=ConnectionControl(manual_pairing=True),
+        )
+        self.assertEqual(game_snap["motion"]["turn_sensitivity"], 44)
+        self.assertEqual(session.config.profile_settings["Game"].turn_sensitivity, 44.0)
+
+        session.switch_profile("Music")
+        self.assertGreater(engine.turn_sensitivity, 44.0)
+        music_snap = handle_control(
+            session,
+            "tilt",
+            {"threshold": 5.5},
+            bus=EventBus(),
+            connection_control=ConnectionControl(manual_pairing=True),
+        )
+        music_snap = handle_control(
+            session,
+            "turn-sensitivity",
+            {"value": 92},
+            bus=EventBus(),
+            connection_control=ConnectionControl(manual_pairing=True),
+        )
+        self.assertEqual(music_snap["motion"]["tilt_on"], 5.5)
+        self.assertEqual(music_snap["motion"]["turn_sensitivity"], 92)
+        self.assertEqual(session.config.profile_settings["Music"].tilt_threshold, 5.5)
+
+        session.switch_profile("Game")
+        self.assertEqual(engine.turn_sensitivity, 44)
+        self.assertNotEqual(engine.tilt_on, 5.5)
+        session.switch_profile("Music")
+        self.assertEqual(engine.turn_sensitivity, 92)
+        self.assertEqual(engine.tilt_on, 5.5)
+
+    def test_build_detector_applies_active_profile_motion_settings(self):
+        config = TrikiConfig(
+            active_profile="Music",
+            profile_settings={"Music": MotionProfileSettings(tilt_threshold=5.0, turn_sensitivity=95.0)},
+        ).merged_with_defaults()
+
+        detector = build_detector(config, self._args())
+
+        self.assertEqual(detector.tilt_on, 5.0)
+        self.assertEqual(detector.turn_sensitivity, 95.0)
+
     def test_no_calibrate_control_action(self):
         # The 'calibrate' control is removed entirely (no calibration anywhere).
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
@@ -1956,9 +2010,11 @@ class TiltControlHtmlTests(unittest.TestCase):
         self.assertIn("state.engine) === 'motion'", html)
         # The threshold control posts the 'tilt' action; live body-frame readout.
         self.assertIn("control('tilt'", html)
+        self.assertIn("control('turn-sensitivity'", html)
         self.assertIn('id="motion-hd"', html)
         self.assertIn('id="motion-he"', html)
         self.assertIn('id="motion-tilt"', html)
+        self.assertIn("profile-specific", html)
         # Twist/lean copy is present; NO calibration / heading machinery survives.
         self.assertIn("twist", html.lower())
         self.assertIn("lean", html.lower())

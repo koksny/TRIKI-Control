@@ -817,6 +817,8 @@ class NullKeyEmitter:
 
 DEFAULT_HOLD_MS = 400
 MAX_HOLD_MS = 2000
+DEFAULT_VOLUME_TAP_REPEAT_MS = 80
+REPEAT_TAP_KEYS = {"volume-up", "volume-down"}
 
 
 class HoldKeyEmitter:
@@ -840,16 +842,19 @@ class HoldKeyEmitter:
         *,
         hold_ms: int = 0,
         max_hold_ms: int = MAX_HOLD_MS,
+        volume_tap_repeat_ms: int = DEFAULT_VOLUME_TAP_REPEAT_MS,
         monotonic: Callable[[], float] = time.monotonic,
         observer=None,
     ) -> None:
         self._base = base
         self._observer = observer
         self._max_hold_ms = max(0, int(max_hold_ms))
+        self._volume_tap_repeat_seconds = max(0.0, int(volume_tap_repeat_ms) / 1000.0)
         self._monotonic = monotonic
         self._hold_seconds = self._clamp_seconds(hold_ms)
         self._cond = threading.Condition()
         self._deadlines: dict[str, float] = {}
+        self._last_repeat_tap: dict[str, float] = {}
         self._worker: threading.Thread | None = None
         self._stop = False
 
@@ -883,6 +888,16 @@ class HoldKeyEmitter:
             if hold_seconds <= 0:
                 self._base.press_key(key)
                 self._notify("tap", key)
+                return
+            if key in REPEAT_TAP_KEYS:
+                now = self._monotonic()
+                last = self._last_repeat_tap.get(key)
+                if last is None or (now - last) >= (self._volume_tap_repeat_seconds - 1e-9):
+                    self._last_repeat_tap[key] = now
+                    self._base.press_key(key)
+                    self._notify("tap", key, repeat_ms=int(round(self._volume_tap_repeat_seconds * 1000)))
+                else:
+                    self._notify("skip", key, repeat_ms=int(round(self._volume_tap_repeat_seconds * 1000)))
                 return
             is_new = key not in self._deadlines
             self._deadlines[key] = self._monotonic() + hold_seconds

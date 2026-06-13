@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+- Made volume up/down behave like repeated media-key taps while twisting, instead of being swallowed by the keyboard hold bridge.
+- Added per-profile Motion tuning for lean threshold and turn sensitivity, with Music defaulting to a more sensitive twist pickup than Game.
+- Changed the lean threshold control in Advanced to a slider and persisted Motion tuning through config export/import.
+
 ## 1.0.2
 
 - Restored media-key defaults for the Music profile while keeping the shared Motion/Game action rows in Advanced.

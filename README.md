@@ -2,7 +2,7 @@
 
 ![TRIKI Control desktop UI](triki-control_screenshot.jpg)
 
-![Version](https://img.shields.io/badge/version-1.0.2-ff2bd6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+![Version](https://img.shields.io/badge/version-1.0.3-ff2bd6.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
 **Play PC games by waving a bottle cap around.**
 
@@ -51,7 +51,7 @@ Two tips that make it click:
 - **Steer and walk are separate moves.** Twist *or* tilt, not both at once. Twist to aim, then tilt to go. It feels like driving a tank, because it basically is one.
 - **Shoot clean.** A fire-tap is a flat, straight-down knock on the table. If you twist while you tap, the cap reads it as a turn instead, so keep the tap square.
 
-Every binding is editable in **Advanced > Action Mapping**, and there is a **Turn sensitivity** slider if steering feels too eager or too stiff.
+Every binding is editable in **Advanced > Action Mapping**, and the Motion tuning sliders are saved per profile. Game can stay steady for steering, while Music can use a more sensitive twist pickup for volume control.
 
 ## Why does it steer like a tank?
 
@@ -86,7 +86,7 @@ See [Building from source](#building-from-source) if you would rather run the co
 ## Profiles
 
 - **Game** is the tank scheme above, run by the body-frame motion engine. This is the one built and tuned for actually playing through Doom.
-- **Music** is a second built-in profile slot with the same controls as Game, but its default mappings are media controls: volume down/up, previous/next track, mute, and play/pause.
+- **Music** is a second built-in profile slot with the same controls as Game, but its default mappings are media controls: volume down/up, previous/next track, mute, and play/pause. Volume twists are sent as repeated media-key taps, so holding a twist behaves more like a volume knob.
 
 Profiles can be selected, edited, exported, imported, reset one at a time, or reset as a whole set. Bindings accept single keys (`w`, `left`, `enter`, `space`, `=`), media keys (`volume-up`, `media-play-pause`), and short macros (`left, 100ms, enter`).
 

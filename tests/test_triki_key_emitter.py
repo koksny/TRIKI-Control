@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from triki_key_emitter import (
     DEFAULT_HOLD_MS,
+    DEFAULT_VOLUME_TAP_REPEAT_MS,
     DEFAULT_KEYMAP,
     INPUT,
     KEYEVENTF_EXTENDEDKEY,
@@ -603,6 +604,41 @@ class HoldKeyEmitterTests(unittest.TestCase):
         self.assertEqual(base.ups, [])
         emitter.set_hold_ms(0)  # deterministic release, no timer race
         self.assertEqual(base.ups, ["up"])
+        emitter.close()
+
+    def test_volume_keys_repeat_as_rate_limited_taps_during_hold(self):
+        clock = {"t": 100.0}
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(
+            base,
+            hold_ms=120,
+            volume_tap_repeat_ms=80,
+            monotonic=lambda: clock["t"],
+        )
+
+        emitter.press_key("volume-up")
+        clock["t"] += 0.02
+        emitter.press_key("volume-up")
+        clock["t"] += 0.06
+        emitter.press_key("volume-up")
+
+        self.assertEqual(base.pressed, ["volume-up", "volume-up"])
+        self.assertEqual(base.downs, [])
+        self.assertEqual(base.ups, [])
+        self.assertEqual(DEFAULT_VOLUME_TAP_REPEAT_MS, 80)
+        emitter.close()
+
+    def test_non_volume_media_keys_still_do_not_repeat_while_held(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=120)
+
+        emitter.press_key("media-next")
+        emitter.press_key("media-next")
+
+        self.assertEqual(base.pressed, [])
+        self.assertEqual(base.downs, ["media-next"])
+        emitter.set_hold_ms(0)
+        self.assertEqual(base.ups, ["media-next"])
         emitter.close()
 
     def test_distinct_keys_held_concurrently(self):

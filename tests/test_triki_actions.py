@@ -18,9 +18,11 @@ from triki_actions import (
     ActionBinding,
     ActionExecutor,
     ActionStep,
+    MotionProfileSettings,
     TrikiConfig,
     default_actions_for_profile,
     default_action_map,
+    default_motion_settings_for_profile,
     default_profile_map,
     engine_for_profile,
     labels_for_profile,
@@ -102,6 +104,14 @@ class TrikiActionTests(unittest.TestCase):
         self.assertEqual(music["flip"].key_name, "volume-mute")
         self.assertEqual(music["scrub-straight"].key_name, "media-next")
 
+    def test_builtin_profiles_have_separate_motion_tuning_defaults(self):
+        game = default_motion_settings_for_profile("Game")
+        music = default_motion_settings_for_profile("Music")
+
+        self.assertEqual(game.tilt_threshold, music.tilt_threshold)
+        self.assertEqual(game.turn_sensitivity, 50.0)
+        self.assertGreater(music.turn_sensitivity, game.turn_sensitivity)
+
     def test_empty_config_starts_with_two_profiles_active_game(self):
         config = TrikiConfig().merged_with_defaults()
 
@@ -109,6 +119,8 @@ class TrikiActionTests(unittest.TestCase):
         self.assertEqual(list(config.profiles.keys()), ["Game", "Music"])
         self.assertEqual(config.engine, ENGINE_MOTION)
         self.assertEqual(config.actions["turn-right"].key_name, "right")
+        self.assertIn("Game", config.profile_settings)
+        self.assertIn("Music", config.profile_settings)
 
     def test_media_keys_are_supported_as_action_targets(self):
         self.assertEqual(vk_for_key("volume-up"), 0xAF)
@@ -345,6 +357,54 @@ class TrikiActionTests(unittest.TestCase):
 
         self.assertEqual(config.profiles["Music"]["stamp"].key_name, "space")
         self.assertEqual(config.profiles["Music"]["turn-right"].key_name, "volume-up")
+
+    def test_profile_motion_settings_round_trip_with_config(self):
+        config = TrikiConfig(
+            active_profile="Music",
+            profile_settings={
+                "Game": MotionProfileSettings(tilt_threshold=8.0, turn_sensitivity=50.0),
+                "Music": MotionProfileSettings(tilt_threshold=5.5, turn_sensitivity=92.0),
+            },
+        ).merged_with_defaults()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            save_config(path, config)
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            loaded = load_config(path)
+
+        self.assertEqual(raw["profile_settings"]["Music"]["tilt_threshold"], 5.5)
+        self.assertEqual(raw["profile_settings"]["Music"]["turn_sensitivity"], 92.0)
+        self.assertEqual(loaded.profile_settings["Game"].turn_sensitivity, 50.0)
+        self.assertEqual(loaded.profile_settings["Music"].tilt_threshold, 5.5)
+
+    def test_profile_motion_settings_are_clamped(self):
+        settings = MotionProfileSettings.from_dict(
+            {"tilt_threshold": 99, "turn_sensitivity": -20}
+        )
+
+        self.assertEqual(settings.tilt_threshold, 30.0)
+        self.assertEqual(settings.turn_sensitivity, 0.0)
+
+    def test_partial_music_motion_settings_keep_music_fallbacks(self):
+        config = TrikiConfig(
+            version=CONFIG_VERSION,
+            profile_settings={"Music": {"tilt_threshold": 6.0}},
+        ).merged_with_defaults()
+
+        self.assertEqual(config.profile_settings["Music"].tilt_threshold, 6.0)
+        self.assertEqual(
+            config.profile_settings["Music"].turn_sensitivity,
+            default_motion_settings_for_profile("Music").turn_sensitivity,
+        )
+
+    def test_invalid_music_motion_settings_keep_music_fallbacks(self):
+        config = TrikiConfig(
+            version=CONFIG_VERSION,
+            profile_settings={"Music": {"tilt_threshold": "bad", "turn_sensitivity": "bad"}},
+        ).merged_with_defaults()
+
+        self.assertEqual(config.profile_settings["Music"], default_motion_settings_for_profile("Music"))
 
     def test_legacy_config_actions_only_collapses_to_game(self):
         with tempfile.TemporaryDirectory() as directory:

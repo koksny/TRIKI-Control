@@ -22,6 +22,7 @@ from triki_actions import (
     ENGINE_MOTION,
     TrikiConfig,
     default_actions_for_profile,
+    default_motion_settings_for_profile,
     engine_for_profile,
     labels_for_profile,
     load_config,
@@ -29,6 +30,8 @@ from triki_actions import (
     normalize_hold_ms,
     normalize_lang,
     normalize_profile_name,
+    normalize_tilt_threshold,
+    normalize_turn_sensitivity,
     parse_macro_text,
     save_config,
 )
@@ -69,6 +72,26 @@ MAX_IMPORT_PROFILES = 64
 # over-travel when you stop (well under the 400 ms that felt laggy).
 DEFAULT_MOTION_HOLD_MS = 120
 APP_ICON_TRAY_ASSET = Path("assets") / "triki-control-icon-tray.png"
+
+
+def apply_motion_profile_settings(engine, settings) -> None:
+    if engine is None:
+        return
+    try:
+        if hasattr(engine, "tilt_on"):
+            ratio = 0.6
+            old_on = float(getattr(engine, "tilt_on", 0.0) or 0.0)
+            old_off = float(getattr(engine, "tilt_off", 0.0) or 0.0)
+            if old_on > 0:
+                ratio = max(0.2, min(0.9, old_off / old_on))
+            engine.tilt_on = settings.tilt_threshold
+            if hasattr(engine, "tilt_off"):
+                engine.tilt_off = round(settings.tilt_threshold * ratio, 2)
+        setter = getattr(engine, "set_turn_sensitivity", None)
+        if setter is not None:
+            setter(settings.turn_sensitivity)
+    except Exception:
+        pass
 
 
 class AppSession:
@@ -114,6 +137,31 @@ class AppSession:
         no such diagnostics, which is fine -- the reads are null-safe)."""
         with self._lock:
             self._motion_engine = engine
+            self._apply_motion_settings_locked()
+
+    def _active_motion_settings_locked(self):
+        return self.config.profile_settings.get(
+            self.config.active_profile,
+            default_motion_settings_for_profile(self.config.active_profile),
+        )
+
+    def _set_active_motion_settings_locked(self, *, tilt_threshold=None, turn_sensitivity=None) -> None:
+        current = self._active_motion_settings_locked()
+        self.config.profile_settings[self.config.active_profile] = type(current)(
+            tilt_threshold=(
+                normalize_tilt_threshold(tilt_threshold)
+                if tilt_threshold is not None
+                else current.tilt_threshold
+            ),
+            turn_sensitivity=(
+                normalize_turn_sensitivity(turn_sensitivity)
+                if turn_sensitivity is not None
+                else current.turn_sensitivity
+            ),
+        )
+
+    def _apply_motion_settings_locked(self) -> None:
+        apply_motion_profile_settings(self._motion_engine, self._active_motion_settings_locked())
 
     def set_status(self, status: str, message: str) -> dict:
         with self._lock:
@@ -173,48 +221,26 @@ class AppSession:
         grown-up can make the cap touchier/stiffer with NO calibration. Clamped to
         a sane 3..30 deg band. Null-safe: a no-op snapshot if no Motion engine is
         attached (the classifier path has no tilt threshold)."""
-        try:
-            value = float(threshold)
-        except (TypeError, ValueError):
-            return self.snapshot()
-        value = max(3.0, min(30.0, value))
+        value = normalize_tilt_threshold(threshold)
         with self._lock:
-            engine = self._motion_engine
-        if engine is not None and hasattr(engine, "tilt_on"):
-            try:
-                ratio = 0.62
-                old_on = float(getattr(engine, "tilt_on", 0.0) or 0.0)
-                old_off = float(getattr(engine, "tilt_off", 0.0) or 0.0)
-                if old_on > 0:
-                    ratio = max(0.2, min(0.9, old_off / old_on))
-                engine.tilt_on = value
-                engine.tilt_off = round(value * ratio, 2)
-            except Exception:
-                pass
-        with self._lock:
+            self._set_active_motion_settings_locked(tilt_threshold=value)
+            self._apply_motion_settings_locked()
             if self.logger is not None:
-                self.logger.log("tilt", {"threshold": value})
+                self.logger.log("tilt", {"threshold": value, "profile": self.config.active_profile})
+            self._save_config()
             return self.snapshot()
 
     def set_turn_sensitivity(self, value) -> dict:
         """Set the Motion engine's TURN sensitivity (0..100). Higher = the cap turns
         on a gentler twist. The maintainer found the default too touchy / too fast;
         this is the Advanced slider."""
-        try:
-            value = max(0.0, min(100.0, float(value)))
-        except (TypeError, ValueError):
-            return self.snapshot()
+        value = normalize_turn_sensitivity(value)
         with self._lock:
-            engine = self._motion_engine
-        setter = getattr(engine, "set_turn_sensitivity", None)
-        if setter is not None:
-            try:
-                setter(value)
-            except Exception:
-                pass
-        with self._lock:
+            self._set_active_motion_settings_locked(turn_sensitivity=value)
+            self._apply_motion_settings_locked()
             if self.logger is not None:
-                self.logger.log("turn_sensitivity", {"value": value})
+                self.logger.log("turn_sensitivity", {"value": value, "profile": self.config.active_profile})
+            self._save_config()
             return self.snapshot()
 
     def set_lang(self, lang: str) -> dict:
@@ -261,11 +287,13 @@ class AppSession:
             # A new custom profile starts from the same Motion/Game defaults as the
             # built-ins, so Advanced shows one consistent action table everywhere.
             self.config.profiles[profile_name] = default_actions_for_profile(profile_name)
+            self.config.profile_settings[profile_name] = default_motion_settings_for_profile(profile_name)
             self.config.active_profile = profile_name
             self.config.actions = dict(self.config.profiles[profile_name])
             # Keep the derived control engine in sync with the active profile so a
             # later snapshot / BLE wiring never reads a stale engine.
             self.config.engine = engine_for_profile(profile_name)
+            self._apply_motion_settings_locked()
             self._action_revision += 1
             self._save_config()
             return self.snapshot()
@@ -279,6 +307,7 @@ class AppSession:
             self.config.active_profile = profile_name
             self.config.actions = dict(self.config.profiles[profile_name])
             self.config.engine = engine_for_profile(profile_name)
+            self._apply_motion_settings_locked()
             self._action_revision += 1
             if self.logger is not None:
                 self.logger.log("profile", {"active_profile": profile_name})
@@ -297,6 +326,8 @@ class AppSession:
                 self.config.active_profile = next(iter(self.config.profiles))
                 self.config.actions = dict(self.config.profiles[self.config.active_profile])
                 self.config.engine = engine_for_profile(self.config.active_profile)
+            self.config.profile_settings.pop(profile_name, None)
+            self._apply_motion_settings_locked()
             self._action_revision += 1
             self._save_config()
             return self.snapshot()
@@ -313,6 +344,10 @@ class AppSession:
                         for gesture, binding in actions.items()
                     }
                     for name, actions in config.profiles.items()
+                },
+                "profile_settings": {
+                    name: config.profile_settings[name].to_dict()
+                    for name in config.profiles
                 },
             }
 
@@ -331,6 +366,7 @@ class AppSession:
                     name: dict(actions)
                     for name, actions in incoming.profiles.items()
                 }
+                self.config.profile_settings = dict(incoming.profile_settings)
             else:
                 self.config.profiles.update(
                     {
@@ -338,6 +374,7 @@ class AppSession:
                         for name, actions in incoming.profiles.items()
                     }
                 )
+                self.config.profile_settings.update(incoming.profile_settings)
             self.config.active_profile = (
                 incoming.active_profile
                 if incoming.active_profile in self.config.profiles
@@ -345,6 +382,7 @@ class AppSession:
             )
             self.config.actions = dict(self.config.profiles[self.config.active_profile])
             self.config.engine = engine_for_profile(self.config.active_profile)
+            self._apply_motion_settings_locked()
             self._action_revision += 1
             self._save_config()
             return self.snapshot()
@@ -354,6 +392,7 @@ class AppSession:
             self._release_held_keys()
             output_enabled = self.config.output_enabled
             self.config = TrikiConfig(output_enabled=output_enabled).merged_with_defaults()
+            self._apply_motion_settings_locked()
             self._action_revision += 1
             self._save_config()
             return self.snapshot()
@@ -362,6 +401,10 @@ class AppSession:
         with self._lock:
             self.config.actions = default_actions_for_profile(self.config.active_profile)
             self.config.profiles[self.config.active_profile] = dict(self.config.actions)
+            self.config.profile_settings[self.config.active_profile] = default_motion_settings_for_profile(
+                self.config.active_profile
+            )
+            self._apply_motion_settings_locked()
             self._action_revision += 1
             self._save_config()
             return self.snapshot()
@@ -448,12 +491,13 @@ class AppSession:
         # convention (the structural half of the bug-#8 flip fix). Null-safe
         # defaults if no live engine is attached. Caller holds the lock.
         engine = self._motion_engine
+        settings = self._active_motion_settings_locked()
         return {
             "hd": round(float(getattr(engine, "_last_hd", 0.0)), 1),
             "he": round(float(getattr(engine, "_last_he", 0.0)), 1),
             "tilt": round(float(getattr(engine, "_last_tilt", 0.0)), 1),
-            "tilt_on": round(float(getattr(engine, "tilt_on", 0.0)), 1),
-            "turn_sensitivity": round(float(getattr(engine, "turn_sensitivity", 0.0)), 0),
+            "tilt_on": round(float(getattr(engine, "tilt_on", settings.tilt_threshold)), 1),
+            "turn_sensitivity": round(float(getattr(engine, "turn_sensitivity", settings.turn_sensitivity)), 0),
             "direction": str(getattr(engine, "_last_direction", "idle")),
             "fire": bool(getattr(engine, "_last_fire", False)),
         }
@@ -1629,7 +1673,7 @@ def build_html() -> str:
             </div>
           </section>
 
-          <!-- TILT settings (body-frame Motion engine, the Game profile). NO
+          <!-- profile-specific TILT/TURN settings (body-frame Motion engine). NO
                calibrate button, NO heading -- neutral is auto-captured at connect
                and re-centred when the cap is still. Just the lean engage threshold
                (editable) + a live read of the body-frame lean. The tilt->key binds
@@ -1643,13 +1687,13 @@ def build_html() -> str:
             </p>
             <div class="tilt-controls">
               <label for="tilt-threshold" data-i18n="tilt.threshold">Lean engage</label>
-              <input type="number" id="tilt-threshold" min="3" max="30" step="0.5" value="9"> <span>&deg;</span>
-              <span class="tilt-hint" data-i18n="tilt.thresholdHint">How far to lean before it walks. Lower = touchier.</span>
+              <input type="range" id="tilt-threshold" min="3" max="30" step="0.1" value="7.6" style="flex:1 1 160px;"> <code id="tilt-threshold-val">7.6</code><span>&deg;</span>
+              <span class="tilt-hint" data-i18n="tilt.thresholdHint">Saved per profile. Lower = touchier.</span>
             </div>
             <div class="tilt-controls">
               <label for="turn-sensitivity" data-i18n="turn.sensitivity">Turn sensitivity</label>
               <input type="range" id="turn-sensitivity" min="0" max="100" step="1" value="50" style="flex:1 1 160px;"> <code id="turn-sensitivity-val">50</code>
-              <span class="tilt-hint" data-i18n="turn.sensitivityHint">Lower = the cap must twist more to turn (slower, steadier).</span>
+              <span class="tilt-hint" data-i18n="turn.sensitivityHint">Saved per profile. Higher = gentler twist pickup.</span>
             </div>
             <div class="motion-live" id="motion-live">
               <span data-i18n="tilt.live.fwd">Forward/back</span> <code id="motion-he">0</code>
@@ -1749,8 +1793,8 @@ def build_html() -> str:
         'adv.tilt': 'Sterowanie przechyłem',
         'motion.activeEngine': 'Aktywny silnik:',
         'tilt.help': 'Obróć kapsel płasko w miejscu, aby skręcić; przechyl go i przytrzymaj, aby iść do przodu. Stempel w dół = strzał, obrót do góry dnem = Shift, płaski przesuw po stole = użyj/drzwi. Neutral to po prostu jak kapsel leży po połączeniu \\u2014 bez kalibracji. Kierunki i progi zmienisz w wierszach poniżej.',
-        'tilt.threshold': 'Próg przechyłu', 'tilt.thresholdHint': 'Jak mocno przechylić, aby ruszyć. Mniej = czulej.',
-        'turn.sensitivity': 'Czułość obrotu', 'turn.sensitivityHint': 'Niżej = kapsel musi się mocniej obrócić, by skręcić (wolniej, stabilniej).',
+        'tilt.threshold': 'Próg przechyłu', 'tilt.thresholdHint': 'Zapisywane osobno dla profilu. Mniej = czulej.',
+        'turn.sensitivity': 'Czułość obrotu', 'turn.sensitivityHint': 'Zapisywane osobno dla profilu. Wyżej = łapie delikatniejszy obrót.',
         'tilt.live.fwd': 'Przód/tył', 'tilt.live.side': 'Bok', 'tilt.live.lean': 'Przechył', 'tilt.live.dir': 'Kierunek',
         'about.tagline': 'Kręć kapslem. Graj. Baw się dobrze!', 'about.close': 'Zamknij'
       },
@@ -1772,8 +1816,8 @@ def build_html() -> str:
         'adv.tilt': 'Tilt control',
         'motion.activeEngine': 'Active engine:',
         'tilt.help': "Twist the cap in place to turn; lean it past the threshold and hold to walk. Neutral is wherever the cap lies when you connect \\u2014 no calibration. Re-centre by leaving the cap still for ~1.5 s. Strafe (sideways lean) is best-effort \\u2014 remap it in the rows below.",
-        'tilt.threshold': 'Lean engage', 'tilt.thresholdHint': 'How far to lean before it walks. Lower = touchier.',
-        'turn.sensitivity': 'Turn sensitivity', 'turn.sensitivityHint': 'Lower = the cap must twist more to turn (slower, steadier).',
+        'tilt.threshold': 'Lean engage', 'tilt.thresholdHint': 'Saved per profile. Lower = touchier.',
+        'turn.sensitivity': 'Turn sensitivity', 'turn.sensitivityHint': 'Saved per profile. Higher = gentler twist pickup.',
         'tilt.live.fwd': 'Forward/back', 'tilt.live.side': 'Side', 'tilt.live.lean': 'Lean', 'tilt.live.dir': 'Direction',
         'about.tagline': 'Spin the cap. Play the game. Have fun!', 'about.close': 'Close'
       }
@@ -1969,9 +2013,11 @@ def build_html() -> str:
       // Seed the threshold input from the engine's live tilt_on unless the
       // grown-up is mid-edit (don't clobber a value being typed).
       const thr = document.getElementById('tilt-threshold');
+      const thv = document.getElementById('tilt-threshold-val');
       if (thr && document.activeElement !== thr && Number.isFinite(m.tilt_on) && m.tilt_on > 0) {
         thr.value = m.tilt_on;
       }
+      if (thv && Number.isFinite(m.tilt_on) && m.tilt_on > 0) thv.textContent = m.tilt_on;
       const ts = document.getElementById('turn-sensitivity');
       const tsv = document.getElementById('turn-sensitivity-val');
       if (ts && document.activeElement !== ts && Number.isFinite(m.turn_sensitivity)) {
@@ -2279,6 +2325,10 @@ def build_html() -> str:
     // engine's tilt_on (and its release threshold proportionally) on the server.
     const tiltThresholdInput = document.getElementById('tilt-threshold');
     if (tiltThresholdInput) {
+      const thv = document.getElementById('tilt-threshold-val');
+      tiltThresholdInput.addEventListener('input', () => {
+        if (thv) thv.textContent = tiltThresholdInput.value;
+      });
       tiltThresholdInput.addEventListener('change', () => {
         control('tilt', { threshold: parseFloat(tiltThresholdInput.value) });
       });
@@ -2821,7 +2871,15 @@ def build_detector(
     a fixed config.
     """
     if config.engine == ENGINE_MOTION:
-        return MotionControlEngine(observer=observer)
+        engine = MotionControlEngine(observer=observer)
+        apply_motion_profile_settings(
+            engine,
+            config.profile_settings.get(
+                config.active_profile,
+                default_motion_settings_for_profile(config.active_profile),
+            ),
+        )
+        return engine
     return _build_classifier(args, observer=observer)
 
 
@@ -2872,9 +2930,17 @@ def build_engine_router(
     profile switch re-routes input live instead of silently breaking it. The session-
     log ``observer`` is attached to both engines; since only the active one is fed,
     only it logs -- no double-logging."""
+    motion = MotionControlEngine(observer=observer)
+    apply_motion_profile_settings(
+        motion,
+        session.config.profile_settings.get(
+            session.config.active_profile,
+            default_motion_settings_for_profile(session.config.active_profile),
+        ),
+    )
     return ProfileEngineRouter(
         session,
-        MotionControlEngine(observer=observer),
+        motion,
         _build_classifier(args, observer=observer),
     )
 

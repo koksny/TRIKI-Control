@@ -44,8 +44,14 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # 13->14: Music and custom profiles now use the same Motion/Game action vocabulary,
 # dropping the old classifier-only action rows from Advanced.
 # 14->15: Music keeps the shared Motion rows, but restores media-key defaults.
-CONFIG_VERSION = 15
+# 15->16: Motion tuning gets per-profile settings for lean threshold and turn sensitivity.
+CONFIG_VERSION = 16
 MAX_MACRO_DELAY_MS = 5000  # ceiling for a single macro delay step; legit macros use sub-second delays
+MIN_MOTION_TILT_THRESHOLD = 3.0
+MAX_MOTION_TILT_THRESHOLD = 30.0
+DEFAULT_MOTION_TILT_THRESHOLD = 7.6
+DEFAULT_GAME_TURN_SENSITIVITY = 50.0
+DEFAULT_MUSIC_TURN_SENSITIVITY = 85.0
 
 # Control engines. "classifier" is the old discrete LiveGestureDetector path kept
 # for tooling/legacy code; "motion" is the body-frame continuous MotionControlEngine
@@ -185,12 +191,65 @@ class ActionResult:
     reason: str
 
 
+def normalize_turn_sensitivity(value, fallback: float = DEFAULT_GAME_TURN_SENSITIVITY) -> float:
+    try:
+        return max(0.0, min(100.0, float(value)))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def normalize_tilt_threshold(value, fallback: float = DEFAULT_MOTION_TILT_THRESHOLD) -> float:
+    try:
+        return round(max(MIN_MOTION_TILT_THRESHOLD, min(MAX_MOTION_TILT_THRESHOLD, float(value))), 1)
+    except (TypeError, ValueError):
+        return fallback
+
+
+@dataclass(frozen=True)
+class MotionProfileSettings:
+    tilt_threshold: float = DEFAULT_MOTION_TILT_THRESHOLD
+    turn_sensitivity: float = DEFAULT_GAME_TURN_SENSITIVITY
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any] | MotionProfileSettings,
+        *,
+        fallback: MotionProfileSettings | None = None,
+    ) -> MotionProfileSettings:
+        fallback = fallback or cls()
+        if isinstance(data, MotionProfileSettings):
+            return cls(
+                tilt_threshold=normalize_tilt_threshold(data.tilt_threshold, fallback.tilt_threshold),
+                turn_sensitivity=normalize_turn_sensitivity(data.turn_sensitivity, fallback.turn_sensitivity),
+            )
+        if not isinstance(data, dict):
+            return fallback
+        return cls(
+            tilt_threshold=normalize_tilt_threshold(
+                data.get("tilt_threshold", fallback.tilt_threshold),
+                fallback.tilt_threshold,
+            ),
+            turn_sensitivity=normalize_turn_sensitivity(
+                data.get("turn_sensitivity", fallback.turn_sensitivity),
+                fallback.turn_sensitivity,
+            ),
+        )
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "tilt_threshold": normalize_tilt_threshold(self.tilt_threshold),
+            "turn_sensitivity": normalize_turn_sensitivity(self.turn_sensitivity),
+        }
+
+
 @dataclass
 class TrikiConfig:
     actions: dict[str, ActionBinding] = field(default_factory=dict)
     output_enabled: bool = False
     version: int = CONFIG_VERSION
     profiles: dict[str, dict[str, ActionBinding]] = field(default_factory=dict)
+    profile_settings: dict[str, MotionProfileSettings] = field(default_factory=dict)
     active_profile: str = DEFAULT_PROFILE_NAME
     hold_ms: int = 0
     engine: str = DEFAULT_ENGINE
@@ -236,6 +295,20 @@ class TrikiConfig:
                 custom = default_action_map()
                 custom.update(_only_labels(body, labels_for_profile(normalized)))
                 merged_profiles[normalized] = custom
+
+        merged_profile_settings = {
+            name: default_motion_settings_for_profile(name)
+            for name in merged_profiles
+        }
+        for stored_name, stored_settings in self.profile_settings.items():
+            normalized = normalize_profile_name(stored_name)
+            if normalized in merged_profiles:
+                merged_profile_settings[normalized] = MotionProfileSettings.from_dict(
+                    stored_settings,
+                    fallback=merged_profile_settings[normalized],
+                )
+        for name in merged_profiles:
+            merged_profile_settings.setdefault(name, default_motion_settings_for_profile(name))
 
         # Resolve the active profile: a name that still exists after the collapse
         # (a built-in or a surviving custom profile) stays active as-is; a dropped
@@ -289,6 +362,7 @@ class TrikiConfig:
             output_enabled=self.output_enabled,
             version=CONFIG_VERSION,
             profiles=merged_profiles,
+            profile_settings=merged_profile_settings,
             active_profile=active_profile,
             hold_ms=hold_ms,
             engine=engine_for_profile(active_profile),
@@ -315,6 +389,10 @@ class TrikiConfig:
                 }
                 for name, actions in merged.profiles.items()
             },
+            "profile_settings": {
+                name: settings.to_dict()
+                for name, settings in merged.profile_settings.items()
+            },
         }
 
     @classmethod
@@ -332,11 +410,16 @@ class TrikiConfig:
             }
             for name, profile_actions in data.get("profiles", {}).items()
         }
+        profile_settings = {
+            normalize_profile_name(str(name)): MotionProfileSettings.from_dict(settings)
+            for name, settings in data.get("profile_settings", {}).items()
+        }
         return cls(
             actions=actions,
             output_enabled=bool(data.get("output_enabled", False)),
             version=int(data.get("version", 1)),
             profiles=profiles,
+            profile_settings=profile_settings,
             active_profile=normalize_profile_name(str(data.get("active_profile", DEFAULT_PROFILE_NAME))),
             hold_ms=normalize_hold_ms(data.get("hold_ms", 0)),
             engine=normalize_engine(data.get("engine")),
@@ -441,6 +524,19 @@ def default_profile_map() -> dict[str, dict[str, ActionBinding]]:
 def default_actions_for_profile(profile_name: str) -> dict[str, ActionBinding]:
     normalized = normalize_profile_name(profile_name)
     return dict(default_profile_map().get(normalized, default_action_map()))
+
+
+def default_motion_settings_for_profile(profile_name: str) -> MotionProfileSettings:
+    normalized = normalize_profile_name(profile_name)
+    if normalized == MUSIC_PROFILE_NAME:
+        return MotionProfileSettings(
+            tilt_threshold=DEFAULT_MOTION_TILT_THRESHOLD,
+            turn_sensitivity=DEFAULT_MUSIC_TURN_SENSITIVITY,
+        )
+    return MotionProfileSettings(
+        tilt_threshold=DEFAULT_MOTION_TILT_THRESHOLD,
+        turn_sensitivity=DEFAULT_GAME_TURN_SENSITIVITY,
+    )
 
 
 def labels_for_profile(profile_name: str) -> tuple[str, ...]:

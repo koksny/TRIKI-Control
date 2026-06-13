@@ -28,11 +28,11 @@ A few habits make the difference between "fighting it" and "playing it":
 In **Advanced**, for any profile:
 
 - **Lean engage:** how far you have to tilt before it walks. Lower is touchier.
-- **Turn sensitivity:** how hard you have to twist before it turns. The default (50) is a good middle. Bump it up if gentle turns get missed; drop it if you get the occasional ghost turn.
+- **Turn sensitivity:** how hard you have to twist before it turns. These Motion tuning values are saved per profile, so Game can stay steady while Music can be much more sensitive for volume control.
 
 Every row in **Action Mapping** can be rebound to any key, media key, or short macro. The Game control labels are `turn-left` and `turn-right` (turn), `go` (walk), `stamp` (fire), `flip` (run), and `scrub-straight` (use/door).
 
-For the **Music** profile, those same rows default to media controls: `turn-left` lowers volume, `turn-right` raises volume, `go` goes to the previous track, `stamp` toggles play/pause, `flip` mutes, and `scrub-straight` skips to the next track.
+For the **Music** profile, those same rows default to media controls: `turn-left` lowers volume, `turn-right` raises volume, `go` goes to the previous track, `stamp` toggles play/pause, `flip` mutes, and `scrub-straight` skips to the next track. Volume up/down repeat while the twist is held, so a held twist acts more like a knob than a single click.
 
 ## A note on "more axes"
 
