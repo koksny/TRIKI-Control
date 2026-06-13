@@ -11,6 +11,7 @@ from triki_actions import (
     ENGINE_CLASSIFIER,
     ENGINE_MOTION,
     GAME_PROFILE_NAME,
+    MOTION_LABELS,
     MAX_MACRO_DELAY_MS,
     MOTION_PROFILE_NAME,
     MUSIC_PROFILE_NAME,
@@ -18,9 +19,11 @@ from triki_actions import (
     ActionExecutor,
     ActionStep,
     TrikiConfig,
+    default_actions_for_profile,
     default_action_map,
     default_profile_map,
     engine_for_profile,
+    labels_for_profile,
     load_config,
     normalize_engine,
     normalize_hold_ms,
@@ -38,16 +41,12 @@ class FailingEmitter:
 
 class TrikiActionTests(unittest.TestCase):
     def test_default_actions_cover_playable_gestures(self):
-        # default_action_map() is the Game fallback: Doom-default-bound keys.
+        # default_action_map() is the universal profile fallback: same vocabulary
+        # and defaults as Game, so Advanced never shows a stale per-profile table.
         actions = default_action_map()
 
-        self.assertEqual(actions["rotate-cw"].key_name, "right")
-        self.assertEqual(actions["rotate-ccw"].key_name, "left")
-        self.assertEqual(actions["scrub-cw"].key_name, "up")
-        self.assertEqual(actions["scrub-ccw"].key_name, "down")
-        self.assertEqual(actions["lift"].key_name, "ctrl")  # STAMP = FIRE
-        self.assertEqual(actions["flip-over"].key_name, ".")  # strafe right
-        self.assertEqual(actions["back-forth"].key_name, "space")  # USE
+        self.assertEqual(actions, default_profile_map()["Game"])
+        self.assertEqual(set(actions), set(MOTION_LABELS))
         self.assertNotIn("swirl-cw", actions)
         self.assertNotIn("shake", actions)
 
@@ -75,30 +74,26 @@ class TrikiActionTests(unittest.TestCase):
     def test_game_profile_uses_doom_default_bound_keys(self):
         game = default_profile_map()["Game"]
 
-        # The Game profile is keyed by the FIRST-CLASS motion controls (TILT is its
-        # own four-axis input). Doom defaults: turn=arrows, tilt fwd/back=up/down,
-        # tilt strafe=,/. , fire=ctrl.
+        # The Game profile is keyed by the current first-class motion controls.
         self.assertEqual(game["turn-left"].key_name, "left")
         self.assertEqual(game["turn-right"].key_name, "right")
-        self.assertEqual(game["tilt-forward"].key_name, "up")
-        self.assertEqual(game["tilt-back"].key_name, "down")
-        self.assertEqual(game["tilt-left"].key_name, ",")
-        self.assertEqual(game["tilt-right"].key_name, ".")
-        self.assertEqual(game["fire"].key_name, "ctrl")
-        # The dead discrete overload is gone: no scrub/flip rows in Game.
+        self.assertEqual(game["go"].key_name, "w")
+        self.assertEqual(game["stamp"].key_name, "enter")
+        self.assertEqual(game["flip"].key_name, "shift")
+        self.assertEqual(game["scrub-straight"].key_name, "space")
+        # The dead discrete overload is gone: no legacy classifier rows in Game.
         self.assertNotIn("scrub-cw", game)
         self.assertNotIn("flip-over", game)
 
-    def test_music_profile_maps_media_and_volume(self):
-        music = default_profile_map()["Music"]
+    def test_every_profile_uses_the_game_action_map(self):
+        profiles = default_profile_map()
+        game = profiles["Game"]
 
-        self.assertEqual(music["rotate-cw"].key_name, "volume-up")
-        self.assertEqual(music["rotate-ccw"].key_name, "volume-down")
-        self.assertEqual(music["scrub-cw"].key_name, "media-next")
-        self.assertEqual(music["scrub-ccw"].key_name, "media-prev")
-        self.assertEqual(music["back-forth"].key_name, "media-play-pause")
-        self.assertEqual(music["lift"].key_name, "media-play-pause")
-        self.assertEqual(music["flip-over"].key_name, "volume-mute")
+        self.assertEqual(profiles["Music"], game)
+        self.assertEqual(default_actions_for_profile("Arena"), game)
+        self.assertEqual(labels_for_profile("Game"), MOTION_LABELS)
+        self.assertEqual(labels_for_profile("Music"), MOTION_LABELS)
+        self.assertEqual(labels_for_profile("Arena"), MOTION_LABELS)
 
     def test_empty_config_starts_with_two_profiles_active_game(self):
         config = TrikiConfig().merged_with_defaults()
@@ -212,10 +207,10 @@ class TrikiActionTests(unittest.TestCase):
         # always added. A custom active profile stays active.
         config = TrikiConfig(
             profiles={
-                "Desktop": {"rotate-cw": ActionBinding.key("right")},
+                "Desktop": {"turn-right": ActionBinding.key("right")},
                 "My Doom": {
-                    "rotate-cw": ActionBinding.key("d"),
-                    "lift": ActionBinding.key("w"),
+                    "turn-right": ActionBinding.key("d"),
+                    "stamp": ActionBinding.key("enter"),
                 },
             },
             active_profile="My Doom",
@@ -235,7 +230,8 @@ class TrikiActionTests(unittest.TestCase):
         self.assertIn("Music", loaded.profiles)
         self.assertTrue(loaded.output_enabled)
         self.assertEqual(loaded.active_profile, "My Doom")
-        self.assertEqual(loaded.actions["rotate-cw"].key_name, "d")
+        self.assertEqual(loaded.actions["turn-right"].key_name, "d")
+        self.assertEqual(set(loaded.actions), set(MOTION_LABELS))
 
     def test_legacy_v7_nine_profile_config_collapses_to_two(self):
         # The real on-disk world: a v7 config with the nine historical profiles and
@@ -281,8 +277,8 @@ class TrikiActionTests(unittest.TestCase):
         self.assertNotIn("Doom Motion", loaded.profiles)
         # Game ships its fresh first-class defaults (not the stored 'right' on every
         # row); the old discrete labels never leak into the motion vocabulary.
-        self.assertEqual(loaded.profiles["Game"]["fire"].key_name, "ctrl")
-        self.assertEqual(loaded.profiles["Game"]["tilt-forward"].key_name, "up")
+        self.assertEqual(loaded.profiles["Game"], default_profile_map()["Game"])
+        self.assertEqual(loaded.profiles["Music"], default_profile_map()["Game"])
 
     def test_legacy_active_media_remaps_to_music(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -301,8 +297,9 @@ class TrikiActionTests(unittest.TestCase):
             loaded = load_config(path)
 
         self.assertEqual(loaded.active_profile, "Music")
-        self.assertEqual(loaded.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(loaded.engine, ENGINE_MOTION)
         self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(loaded.actions, default_profile_map()["Game"])
 
     def test_legacy_config_actions_only_collapses_to_game(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -402,7 +399,7 @@ class HoldMsConfigTests(unittest.TestCase):
         self.assertIn("Game", loaded.profiles)
         self.assertIn("Music", loaded.profiles)
         self.assertIn("My Game", loaded.profiles)  # custom profile kept
-        self.assertEqual(loaded.profiles["My Game"]["scrub-cw"].key_name, "x")
+        self.assertEqual(loaded.profiles["My Game"], default_profile_map()["Game"])
         # active 'Default' was a legacy built-in -> remaps to Game.
         self.assertEqual(loaded.active_profile, "Game")
 
@@ -530,15 +527,15 @@ class ForwardCompatibleMigrationTests(unittest.TestCase):
 
 
 class EngineSelectionTests(unittest.TestCase):
-    def test_game_profile_uses_motion_engine_others_classifier(self):
+    def test_every_profile_uses_motion_engine(self):
         self.assertEqual(engine_for_profile(GAME_PROFILE_NAME), ENGINE_MOTION)
-        self.assertEqual(engine_for_profile(MUSIC_PROFILE_NAME), ENGINE_CLASSIFIER)
+        self.assertEqual(engine_for_profile(MUSIC_PROFILE_NAME), ENGINE_MOTION)
         # MOTION_PROFILE_NAME is an alias of Game.
         self.assertEqual(MOTION_PROFILE_NAME, GAME_PROFILE_NAME)
         self.assertEqual(engine_for_profile(MOTION_PROFILE_NAME), ENGINE_MOTION)
-        # Any unknown name falls back to the classifier.
-        self.assertEqual(engine_for_profile("Doom"), ENGINE_CLASSIFIER)
-        self.assertEqual(engine_for_profile("whatever"), ENGINE_CLASSIFIER)
+        # Custom/unknown names use the same motion engine and settings as Game.
+        self.assertEqual(engine_for_profile("Doom"), ENGINE_MOTION)
+        self.assertEqual(engine_for_profile("whatever"), ENGINE_MOTION)
 
     def test_default_config_uses_motion_engine(self):
         # The default profile is Game, so the default engine is motion.
@@ -547,10 +544,10 @@ class EngineSelectionTests(unittest.TestCase):
         self.assertEqual(config.engine, ENGINE_MOTION)
         self.assertEqual(DEFAULT_ENGINE, ENGINE_MOTION)
 
-    def test_selecting_music_sets_classifier_engine(self):
+    def test_selecting_music_sets_motion_engine(self):
         config = TrikiConfig(active_profile=MUSIC_PROFILE_NAME).merged_with_defaults()
         self.assertEqual(config.active_profile, MUSIC_PROFILE_NAME)
-        self.assertEqual(config.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(config.engine, ENGINE_MOTION)
 
     def test_normalize_engine_defaults_and_validates(self):
         # normalize_engine still validates raw values; missing/unknown -> motion
@@ -575,7 +572,7 @@ class EngineSelectionTests(unittest.TestCase):
             {"version": 7, "engine": "motion", "active_profile": "Media"}
         )
         self.assertEqual(loaded2.active_profile, MUSIC_PROFILE_NAME)
-        self.assertEqual(loaded2.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(loaded2.engine, ENGINE_MOTION)
 
     def test_engine_round_trips_through_config(self):
         config = TrikiConfig(active_profile=GAME_PROFILE_NAME).merged_with_defaults()
@@ -589,9 +586,10 @@ class EngineSelectionTests(unittest.TestCase):
         self.assertEqual(raw["engine"], ENGINE_MOTION)
         self.assertEqual(loaded.engine, ENGINE_MOTION)
         self.assertEqual(loaded.active_profile, GAME_PROFILE_NAME)
-        # A Music config persists engine == "classifier".
+        # A Music config persists engine == "motion" because every profile now
+        # shares the Game control engine/settings.
         music_config = TrikiConfig(active_profile=MUSIC_PROFILE_NAME).merged_with_defaults()
-        self.assertEqual(music_config.to_dict()["engine"], ENGINE_CLASSIFIER)
+        self.assertEqual(music_config.to_dict()["engine"], ENGINE_MOTION)
 
 
 class AutoHoldTests(unittest.TestCase):
@@ -602,11 +600,11 @@ class AutoHoldTests(unittest.TestCase):
         self.assertEqual(config.engine, ENGINE_MOTION)
         self.assertEqual(config.hold_ms, 200)
 
-    def test_music_profile_forces_zero_hold(self):
-        # Music runs the classifier with one-shot taps; hold_ms is forced to 0.
+    def test_music_profile_keeps_continuous_hold_when_set(self):
+        # Music uses the same Motion/Game settings, so hold behaves like Game.
         config = TrikiConfig(active_profile=MUSIC_PROFILE_NAME, hold_ms=350).merged_with_defaults()
-        self.assertEqual(config.engine, ENGINE_CLASSIFIER)
-        self.assertEqual(config.hold_ms, 0)
+        self.assertEqual(config.engine, ENGINE_MOTION)
+        self.assertEqual(config.hold_ms, 350)
 
 
 if __name__ == "__main__":

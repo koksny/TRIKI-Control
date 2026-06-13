@@ -12,9 +12,9 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from triki_actions import (
-    ENGINE_CLASSIFIER,
+    CONFIG_VERSION,
     ENGINE_MOTION,
-    GESTURE_LABELS,
+    MOTION_LABELS,
     ActionBinding,
     ActionExecutor,
     ActionStep,
@@ -415,22 +415,21 @@ class TrikiAppTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "triki.json"
             session = AppSession(config_path=config_path, executor=ActionExecutor(key_emitter=NullKeyEmitter()))
-            # 'back-forth' is a discrete (classifier) control, so bind it under the
-            # Music profile that actually produces it.
+            # Music uses the same Motion/Game action vocabulary as Game.
             session.switch_profile("Music")
 
-            state = session.update_action("back-forth", ActionBinding.macro((ActionStep.key("escape"), ActionStep.delay(50))))
+            state = session.update_action("stamp", ActionBinding.macro((ActionStep.key("escape"), ActionStep.delay(50))))
 
             reloaded = AppSession(config_path=config_path, executor=ActionExecutor(key_emitter=NullKeyEmitter()))
 
         self.assertGreater(state["action_revision"], 0)
-        self.assertEqual(reloaded.config.actions["back-forth"].type, "macro")
+        self.assertEqual(reloaded.config.actions["stamp"].type, "macro")
 
     def test_app_session_creates_switches_and_deletes_profiles(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         session.create_profile("Arena")
         session.switch_profile("Arena")
-        state = session.update_action("rotate-cw", ActionBinding.key("d"))
+        state = session.update_action("turn-right", ActionBinding.key("d"))
 
         session.switch_profile("Game")
         game_state = session.snapshot()
@@ -445,17 +444,16 @@ class TrikiAppTests(unittest.TestCase):
         game_actions = {a["gesture_label"]: a for a in game_state["actions"]}
         self.assertEqual(game_actions["turn-right"]["binding"]["key"], "right")
         self.assertEqual(arena_state["active_profile"], "Arena")
-        # Arena is a custom (classifier) profile -> discrete gesture rows; the edit
-        # to rotate-cw persisted.
+        # Arena is a custom profile with the same rows as Game; the edit persisted.
         arena_actions = {a["gesture_label"]: a for a in arena_state["actions"]}
-        self.assertEqual(arena_actions["rotate-cw"]["binding"]["key"], "d")
+        self.assertEqual(arena_actions["turn-right"]["binding"]["key"], "d")
         self.assertEqual(final_state["active_profile"], "Game")
         self.assertNotIn("Arena", final_state["profiles"])
 
     def test_app_session_exports_imports_and_resets_profiles(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         session.create_profile("Arena")
-        session.update_action("rotate-cw", ActionBinding.key("d"))
+        session.update_action("turn-left", ActionBinding.key("d"))
         exported = session.export_profiles()
 
         target = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
@@ -463,10 +461,11 @@ class TrikiAppTests(unittest.TestCase):
         reset_state = target.reset_all_profiles()
 
         self.assertEqual(exported["active_profile"], "Arena")
-        self.assertEqual(exported["profiles"]["Arena"]["rotate-cw"]["key"], "d")
+        self.assertEqual(exported["profiles"]["Arena"]["turn-left"]["key"], "d")
         self.assertIn("Arena", imported_state["profiles"])
         self.assertEqual(imported_state["active_profile"], "Arena")
-        self.assertEqual(imported_state["actions"][0]["binding"]["key"], "d")
+        imported_actions = {item["gesture_label"]: item for item in imported_state["actions"]}
+        self.assertEqual(imported_actions["turn-left"]["binding"]["key"], "d")
         # reset-all collapses back to the two built-ins, active Game (first-class
         # motion controls: turn-right -> right).
         self.assertEqual(reset_state["active_profile"], "Game")
@@ -476,33 +475,34 @@ class TrikiAppTests(unittest.TestCase):
         session.switch_profile("Music")
         music_state = session.reset_active_profile()
         self.assertEqual(music_state["active_profile"], "Music")
-        self.assertEqual(music_state["actions"][0]["binding"]["key"], "volume-up")
+        music_actions = {item["gesture_label"]: item for item in music_state["actions"]}
+        self.assertEqual(music_actions["turn-left"]["binding"]["key"], "left")
 
     def test_handle_control_maps_key_and_macro_actions(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         bus = EventBus()
         control = ConnectionControl(manual_pairing=True)
-        # 'lift'/'back-forth' are discrete (classifier) controls -> bind under Music.
+        # Music exposes the same Motion/Game action rows as Game.
         session.switch_profile("Music")
 
         key_state = handle_control(
             session,
             "action",
-            {"gesture_label": "lift", "action_type": "key", "key_name": "volume-down"},
+            {"gesture_label": "stamp", "action_type": "key", "key_name": "volume-down"},
             bus=bus,
             connection_control=control,
         )
         macro_state = handle_control(
             session,
             "action",
-            {"gesture_label": "back-forth", "action_type": "macro", "macro_text": "escape, 50ms, enter"},
+            {"gesture_label": "turn-left", "action_type": "macro", "macro_text": "escape, 50ms, enter"},
             bus=bus,
             connection_control=control,
         )
 
         actions = {item["gesture_label"]: item for item in macro_state["actions"]}
-        self.assertEqual(actions["lift"]["binding"]["key"], "volume-down")
-        self.assertEqual(actions["back-forth"]["binding"]["type"], "macro")
+        self.assertEqual(actions["stamp"]["binding"]["key"], "volume-down")
+        self.assertEqual(actions["turn-left"]["binding"]["type"], "macro")
         self.assertGreaterEqual(macro_state["action_revision"], key_state["action_revision"])
 
     def test_handle_control_sets_hold_ms_on_config_and_emitter(self):
@@ -598,12 +598,12 @@ class TrikiAppTests(unittest.TestCase):
             {
                 "operation": "import",
                 "data": {
-                    "version": 2,
+                    "version": CONFIG_VERSION,
                     "active_profile": "Arena",
                     "profiles": {
                         "Arena": {
-                            "rotate-cw": {"type": "key", "key": "d"},
-                            "rotate-ccw": {"type": "key", "key": "a"},
+                            "turn-left": {"type": "key", "key": "d"},
+                            "turn-right": {"type": "key", "key": "a"},
                         }
                     },
                 },
@@ -614,48 +614,38 @@ class TrikiAppTests(unittest.TestCase):
 
         self.assertIn("Arena", state["profiles"])
         self.assertEqual(state["active_profile"], "Arena")
-        self.assertEqual(state["actions"][0]["binding"]["key"], "d")
+        imported_actions = {item["gesture_label"]: item for item in state["actions"]}
+        self.assertEqual(imported_actions["turn-left"]["binding"]["key"], "d")
 
     def test_default_app_session_exposes_builtin_profiles(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
 
         state = session.snapshot()
 
-        # EXACTLY two built-ins, default active Game. The Game profile lists its
-        # first-class MOTION controls -- TILT is its own four-axis input, each a
-        # separate editable row (nothing hidden, spec pt 4).
+        # EXACTLY two built-ins, default active Game. Every profile lists the same
+        # first-class Motion/Game controls (nothing hidden, no legacy classifier
+        # rows in Advanced).
         self.assertEqual(state["active_profile"], "Game")
         self.assertEqual(state["profiles"], ["Game", "Music"])
         game_actions = {item["gesture_label"]: item for item in state["actions"]}
-        self.assertEqual(
-            set(game_actions),
-            {"turn-left", "turn-right", "tilt-forward", "tilt-back",
-             "tilt-left", "tilt-right", "fire"},
-        )
+        self.assertEqual(set(game_actions), set(MOTION_LABELS))
         self.assertEqual(game_actions["turn-right"]["binding"]["key"], "right")
         self.assertEqual(game_actions["turn-left"]["binding"]["key"], "left")
-        self.assertEqual(game_actions["tilt-forward"]["binding"]["key"], "up")
-        self.assertEqual(game_actions["tilt-back"]["binding"]["key"], "down")
-        self.assertEqual(game_actions["tilt-left"]["binding"]["key"], ",")  # strafe L
-        self.assertEqual(game_actions["tilt-right"]["binding"]["key"], ".")  # strafe R
-        self.assertEqual(game_actions["fire"]["binding"]["key"], "ctrl")  # STAMP=FIRE
-        # No overloaded discrete labels leak into the Game rows.
+        self.assertEqual(game_actions["go"]["binding"]["key"], "w")
+        self.assertEqual(game_actions["stamp"]["binding"]["key"], "enter")
+        self.assertEqual(game_actions["flip"]["binding"]["key"], "shift")
+        self.assertEqual(game_actions["scrub-straight"]["binding"]["key"], "space")
+        # No overloaded discrete labels leak into any profile rows.
         self.assertNotIn("scrub-cw", game_actions)
         self.assertNotIn("flip-over", game_actions)
         # The kid-facing row name says what the control DOES (no band-aid rename).
-        self.assertEqual(display_name_for_label("tilt-forward"), "Tilt Forward")
-        self.assertEqual(display_name_for_label("fire"), "Stamp = Fire")
-        # Music lists ALL seven discrete gestures -- scrub is NO LONGER hidden, it is
-        # a real bindable row of the classifier (spec pt 4: do not hide binds).
+        self.assertEqual(display_name_for_label("go"), "Go forward (tilt)")
+        self.assertEqual(display_name_for_label("stamp"), "Stamp (fire)")
+        # Music has exactly the same rows/defaults as Game.
         session.switch_profile("Music")
         music_state = session.snapshot()
         music_actions = {item["gesture_label"]: item for item in music_state["actions"]}
-        self.assertEqual(set(music_actions), set(GESTURE_LABELS))
-        self.assertEqual(music_actions["rotate-cw"]["binding"]["key"], "volume-up")
-        self.assertEqual(music_actions["lift"]["binding"]["key"], "media-play-pause")
-        self.assertEqual(music_actions["flip-over"]["binding"]["key"], "volume-mute")
-        self.assertEqual(music_actions["scrub-cw"]["binding"]["key"], "media-next")
-        self.assertEqual(music_actions["scrub-ccw"]["binding"]["key"], "media-prev")
+        self.assertEqual(music_actions, game_actions)
 
     def test_builtin_profile_set_is_exactly_two(self):
         # The spec contract (pt 5): EXACTLY two built-ins -- Game + Music -- and the
@@ -1536,9 +1526,9 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
     """End-to-end integration for the body-frame Motion engine behind the single
     "Game" profile (the DEFAULT): it routes through build_detector, and a held lean
     drives record_prediction -> mapped Game key -> HoldKeyEmitter holds it. NO
-    calibration anywhere; FIRE is a stamp on 'lift' (Ctrl). The Music (classifier)
-    path is asserted unchanged. The engine-level signs/thresholds are covered in
-    tests/test_triki_motion_engine.py; here we lock the APP wiring.
+    calibration anywhere. Music/custom profiles use the same Motion engine wiring.
+    The engine-level signs/thresholds are covered in tests/test_triki_motion_engine.py;
+    here we lock the APP wiring.
     """
 
     def _args(self):
@@ -1556,13 +1546,13 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
 
         self.assertIsInstance(detector, MotionControlEngine)
 
-    def test_build_detector_routes_to_classifier_for_music_profile(self):
+    def test_build_detector_routes_to_motion_engine_for_music_profile(self):
         config = TrikiConfig(active_profile="Music").merged_with_defaults()
-        self.assertEqual(config.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(config.engine, ENGINE_MOTION)
 
         detector = build_detector(config, self._args())
 
-        self.assertIsInstance(detector, LiveGestureDetector)
+        self.assertIsInstance(detector, MotionControlEngine)
 
     def test_build_detector_attaches_observer_to_motion_engine(self):
         # The session-log 'gesture' channel must keep recording in Motion mode, and
@@ -1601,23 +1591,23 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
                 self.resets += 1
 
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
-        motion, classifier = _Spy("tilt-forward"), _Spy("rotate-cw")
+        motion, classifier = _Spy("go"), _Spy("rotate-cw")
         router = ProfileEngineRouter(session, motion, classifier)
         s = MotionSample(packet_id=0, values=(0, 0, 0, 0, 0, -2050))
 
         session.switch_profile("Game")  # engine == motion
-        self.assertEqual(router.add_sample(0.0, s).label, "tilt-forward")
+        self.assertEqual(router.add_sample(0.0, s).label, "go")
         self.assertEqual((motion.samples, classifier.samples), (1, 0))
         self.assertEqual(motion.resets, 1)  # newly-active engine reset on first sample
 
-        session.switch_profile("Music")  # engine == classifier (the formerly-broken path)
-        self.assertEqual(router.add_sample(0.1, s).label, "rotate-cw")
-        self.assertEqual((motion.samples, classifier.samples), (1, 1))  # motion no longer fed
-        self.assertEqual(classifier.resets, 1)  # newly-active engine reset on the switch
+        session.switch_profile("Music")  # engine == motion, same action vocabulary as Game
+        self.assertEqual(router.add_sample(0.1, s).label, "go")
+        self.assertEqual((motion.samples, classifier.samples), (2, 0))
+        self.assertEqual(classifier.resets, 0)
 
-        session.switch_profile("Game")  # and back -> motion again, reset once more
-        self.assertEqual(router.add_sample(0.2, s).label, "tilt-forward")
-        self.assertEqual(motion.resets, 2)
+        session.switch_profile("Game")  # same engine; no classifier detour
+        self.assertEqual(router.add_sample(0.2, s).label, "go")
+        self.assertEqual(motion.resets, 1)
 
     def test_build_engine_router_exposes_motion_engine_for_diagnostics(self):
         # main() hands router.motion to set_motion_engine so the tilt diagnostics /
@@ -1762,10 +1752,10 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
         self.assertEqual(base.downs, ["down"])
 
         # switch_profile already calls _release_held_keys() on the executor.
-        # Music is the other built-in (classifier).
+        # Music is the other built-in, with the same Motion engine settings.
         session.switch_profile("Music")
         self.assertEqual(base.ups, ["down"])
-        self.assertEqual(session.config.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(session.config.engine, ENGINE_MOTION)
         emitter.close()
 
     def _run_strafe(self, base, emitter, session, dx, dy):
@@ -1879,26 +1869,25 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
         self.assertEqual(motion["tilt_on"], engine.tilt_on)
 
     def test_app_snapshot_exposes_engine_and_defaults_to_motion(self):
-        # The DEFAULT profile is Game -> motion; Music -> classifier.
+        # Every profile uses the Motion engine.
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         self.assertEqual(session.snapshot()["engine"], ENGINE_MOTION)
         session.switch_profile("Music")
-        self.assertEqual(session.snapshot()["engine"], ENGINE_CLASSIFIER)
+        self.assertEqual(session.snapshot()["engine"], ENGINE_MOTION)
         session.switch_profile("Game")
         self.assertEqual(session.snapshot()["engine"], ENGINE_MOTION)
 
-    def test_music_and_custom_profiles_route_through_the_classifier(self):
-        # Guard: only the Game profile gets the Motion engine. Music and any
-        # user-created custom profile keep the classifier (no silent engine swap).
+    def test_music_and_custom_profiles_route_through_motion(self):
+        # Guard: Music and user-created profiles use the same Motion engine as Game.
         for profile in ("Music",):
             config = TrikiConfig(active_profile=profile).merged_with_defaults()
-            self.assertIsInstance(build_detector(config, self._args()), LiveGestureDetector, profile)
-        # A custom profile created through the API also routes to the classifier.
+            self.assertIsInstance(build_detector(config, self._args()), MotionControlEngine, profile)
+        # A custom profile created through the API also routes to Motion.
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         session.create_profile("Arena")
-        self.assertEqual(session.config.engine, ENGINE_CLASSIFIER)
+        self.assertEqual(session.config.engine, ENGINE_MOTION)
         self.assertIsInstance(
-            build_detector(session.config, self._args()), LiveGestureDetector
+            build_detector(session.config, self._args()), MotionControlEngine
         )
 
     def test_tilt_control_adjusts_live_engine_threshold(self):
@@ -2004,6 +1993,15 @@ class AdvancedOverlayUiTests(unittest.TestCase):
         # And the old collapsible is gone entirely.
         self.assertNotIn('<details class="advanced">', html)
         self.assertNotIn("Advanced settings (grown-ups)</summary>", html)
+
+    def test_advanced_title_is_plain_advanced_settings(self):
+        html = build_html()
+
+        self.assertIn('data-i18n="advanced.title">Advanced settings</h2>', html)
+        self.assertIn("'advanced.title': 'Ustawienia zaawansowane'", html)
+        self.assertIn("'advanced.title': 'Advanced settings'", html)
+        self.assertNotIn("grown-ups", html)
+        self.assertNotIn("dla doros", html.lower())
 
     def test_advanced_overlay_is_fixed_scrollable_and_closeable(self):
         html = build_html()

@@ -1,6 +1,6 @@
 # Controls & play guide
 
-TRIKI Control ships two built-in profiles. The **Game** profile is the headline act, a rotation-invariant scheme tuned for shooters. The **Music** profile is a simpler set of one-shot gestures for media control. Everything below is remappable in **Advanced > Action Mapping**.
+TRIKI Control ships two built-in profile slots. **Game** is the default, rotation-invariant scheme tuned for shooters. **Music** is a second built-in slot with the same controls and defaults, so **Advanced > Action Mapping** shows one consistent table for every profile.
 
 ## Game profile (the tank scheme)
 
@@ -25,25 +25,12 @@ A few habits make the difference between "fighting it" and "playing it":
 
 ### Tuning
 
-In **Advanced**, while the Game profile is active:
+In **Advanced**, for any profile:
 
 - **Lean engage:** how far you have to tilt before it walks. Lower is touchier.
 - **Turn sensitivity:** how hard you have to twist before it turns. The default (50) is a good middle. Bump it up if gentle turns get missed; drop it if you get the occasional ghost turn.
 
 Every row in **Action Mapping** can be rebound to any key, media key, or short macro. The Game control labels are `turn-left` and `turn-right` (turn), `go` (walk), `stamp` (fire), `flip` (run), and `scrub-straight` (use/door).
-
-## Music profile
-
-A calmer, couch-friendly set of discrete one-shot gestures, run by the classifier instead of the motion engine:
-
-| Gesture | Default action |
-| --- | --- |
-| Twist right / left | Volume up / down |
-| Tap down | Play / pause |
-| Shake side-to-side | Play / pause |
-| Flip over | Mute |
-
-These fire once per gesture rather than holding a key, which is what you want for media.
 
 ## A note on "more axes"
 

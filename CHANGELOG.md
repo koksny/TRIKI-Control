@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.0.1
 
 - Refreshed the README screenshot and packaged application icon assets.
 - Fixed Windows builds so the bundled WebView runtime includes OpenSSL DLLs required by Python's SSL module.
+- Changed Music and custom profiles to use the same Motion/Game action mapping as Game, removing the stale classifier-only rows from Advanced.
+- Renamed the Advanced dialog title to plain "Advanced settings" / "Ustawienia zaawansowane".
 
 ## 1.0.0
 
@@ -18,7 +20,7 @@ First public release. The cap is a playable game controller, tuned end-to-end un
   - **Flip over** runs (Shift)
   - **Flat slide** uses / opens a door
 - A **Turn sensitivity** slider and an editable **Action Mapping** table for every control.
-- **Music profile** retained for one-shot media gestures (volume, play/pause, mute).
+- **Music profile** retained as the second built-in profile slot.
 
 ### Why the scheme changed from earlier alphas
 

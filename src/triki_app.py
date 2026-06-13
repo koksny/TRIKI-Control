@@ -199,7 +199,7 @@ class AppSession:
     def set_turn_sensitivity(self, value) -> dict:
         """Set the Motion engine's TURN sensitivity (0..100). Higher = the cap turns
         on a gentler twist. The maintainer found the default too touchy / too fast;
-        this is the Advanced slider. Null-safe for the classifier path."""
+        this is the Advanced slider."""
         try:
             value = max(0.0, min(100.0, float(value)))
         except (TypeError, ValueError):
@@ -238,9 +238,9 @@ class AppSession:
     def update_action(self, gesture_label: str, binding: ActionBinding) -> dict:
         gesture_label = normalize_gesture_label(gesture_label)
         with self._lock:
-            # A control is only bindable if the ACTIVE profile's engine actually
-            # produces it -- the Advanced table only ever shows those rows, so a
-            # write to anything else (a cross-vocabulary or unknown label) is a bug.
+            # A control is only bindable if the ACTIVE profile exposes it in
+            # Advanced. Every profile now uses the same Motion/Game vocabulary, so
+            # old classifier-only labels are rejected instead of lingering.
             allowed = labels_for_profile(self.config.active_profile)
             if gesture_label not in allowed:
                 raise ValueError(
@@ -258,15 +258,13 @@ class AppSession:
         with self._lock:
             if profile_name in self.config.profiles:
                 raise ValueError(f"profile already exists: {profile_name}")
-            # A new (custom) profile runs the discrete classifier, so seed it from
-            # the classifier default map -- NOT a copy of the active profile, which
-            # may be the Game/motion vocabulary the classifier never produces.
+            # A new custom profile starts from the same Motion/Game defaults as the
+            # built-ins, so Advanced shows one consistent action table everywhere.
             self.config.profiles[profile_name] = default_actions_for_profile(profile_name)
             self.config.active_profile = profile_name
             self.config.actions = dict(self.config.profiles[profile_name])
             # Keep the derived control engine in sync with the active profile so a
-            # later snapshot / BLE wiring never reads a stale engine (only the
-            # built-in "Doom Motion" profile resolves to the Motion engine).
+            # later snapshot / BLE wiring never reads a stale engine.
             self.config.engine = engine_for_profile(profile_name)
             self._action_revision += 1
             self._save_config()
@@ -448,7 +446,7 @@ class AppSession:
         # engage threshold. NO heading / calibration (that machinery is gone). The
         # viz reads hd/he/tilt from here so it shares the engine's exact sign
         # convention (the structural half of the bug-#8 flip fix). Null-safe
-        # defaults for the classifier path. Caller holds the lock.
+        # defaults if no live engine is attached. Caller holds the lock.
         engine = self._motion_engine
         return {
             "hd": round(float(getattr(engine, "_last_hd", 0.0)), 1),
@@ -481,12 +479,9 @@ class AppSession:
                 "motion": self._motion_diagnostics(),
                 "profiles": list(self.config.profiles.keys()),
                 "battery": battery_snapshot(self._battery_percent, self._battery_message),
-                # Every control the ACTIVE profile's engine can produce, each its
-                # own editable row -- nothing hidden (spec pt 4). The Game profile
-                # lists its first-class MOTION_LABELS (turn-*, tilt-*, fire); Music
-                # and any custom profile list the discrete GESTURE_LABELS (rotate/
-                # scrub/back-forth/lift/flip). Missing rows fall back to disabled so
-                # a half-populated map can never crash the table.
+                # Every profile lists the same first-class Motion/Game controls.
+                # Missing rows fall back to disabled so a half-populated map can
+                # never crash the table.
                 "actions": [
                     {
                         "gesture_label": label,
@@ -524,7 +519,7 @@ def display_name_for_label(control_label: str) -> str:
         "stamp": "Stamp (fire)",
         "flip": "Flip = Shift (run)",
         "scrub-straight": "Scrub slide (use/door)",
-        # Discrete classifier gestures (the Music profile + custom profiles).
+        # Legacy discrete classifier gestures (kept as defensive fallbacks).
         "rotate-cw": "Twist Right",
         "rotate-ccw": "Twist Left",
         "scrub-cw": "Stir Right",
@@ -1612,7 +1607,7 @@ def build_html() -> str:
     <div class="adv-backdrop" id="advanced-backdrop" role="dialog" aria-modal="true" aria-labelledby="advanced-title" hidden>
       <div class="adv-panel">
         <div class="adv-panel-header">
-          <h2 id="advanced-title" data-i18n="advanced.title">Advanced settings (grown-ups)</h2>
+          <h2 id="advanced-title" data-i18n="advanced.title">Advanced settings</h2>
           <button class="adv-close-btn" id="advanced-close" type="button" aria-label="Close" title="Close">&times;</button>
         </div>
         <div class="adv-body">
@@ -1639,11 +1634,11 @@ def build_html() -> str:
                and re-centred when the cap is still. Just the lean engage threshold
                (editable) + a live read of the body-frame lean. The tilt->key binds
                themselves live in the Action Mapping rows below (Tilt Forward/Back,
-               Strafe). Hidden unless the Game (Motion) profile is active. -->
+               Strafe). Hidden only for legacy non-motion states. -->
           <section class="adv-section tilt-section" id="tilt-section" hidden>
             <h2 data-i18n="adv.tilt">Tilt control</h2>
             <p class="motion-help">
-              <span data-i18n="motion.activeEngine">Active engine:</span> <strong id="engine-name">classifier</strong>.
+              <span data-i18n="motion.activeEngine">Active engine:</span> <strong id="engine-name">motion</strong>.
               <span data-i18n="tilt.help">Twist the cap in place to turn; lean it past the threshold and hold to walk. Neutral is wherever the cap lies when you connect &mdash; no calibration. Re-centre by leaving the cap still for ~1.5 s. Strafe (sideways lean) is best-effort &mdash; remap it in the rows below.</span>
             </p>
             <div class="tilt-controls">
@@ -1746,7 +1741,7 @@ def build_html() -> str:
         'games.step': 'Krok 2 \\u2014 Wybierz grę',
         'power.step': 'Krok 3 \\u2014 Wyjście',
         'led.test': 'Test światła',
-        'advanced.open': 'Zaawansowane', 'advanced.title': 'Ustawienia zaawansowane (dla dorosłych)',
+        'advanced.open': 'Zaawansowane', 'advanced.title': 'Ustawienia zaawansowane',
         'adv.profiles': 'Profile', 'adv.profile': 'Profil', 'adv.newProfile': 'Nowy profil',
         'adv.new': 'Nowy', 'adv.delete': 'Usuń', 'adv.reset': 'Reset', 'adv.export': 'Eksport',
         'adv.import': 'Import', 'adv.resetAll': 'Resetuj wszystko',
@@ -1769,7 +1764,7 @@ def build_html() -> str:
         'games.step': 'Step 2 \\u2014 Pick your game',
         'power.step': 'Step 3 \\u2014 Output',
         'led.test': 'Test light',
-        'advanced.open': 'Advanced', 'advanced.title': 'Advanced settings (grown-ups)',
+        'advanced.open': 'Advanced', 'advanced.title': 'Advanced settings',
         'adv.profiles': 'Profiles', 'adv.profile': 'Profile', 'adv.newProfile': 'New profile',
         'adv.new': 'New', 'adv.delete': 'Delete', 'adv.reset': 'Reset', 'adv.export': 'Export',
         'adv.import': 'Import', 'adv.resetAll': 'Reset All',
@@ -1847,27 +1842,25 @@ def build_html() -> str:
 
     // Kid-friendly names + emoji per real profile, localized PL/EN. Keys are the
     // EXACT server profile names (control('profile',{operation:'switch',name})).
-    // EXACTLY two built-ins: Game (twist/tilt/stamp, auto-holds) and Music
-    // (twist=volume, stamp=play/pause). Any user-created custom profile falls back
-    // to the generic tile in renderGameTiles.
+    // EXACTLY two built-in slots. Both use the same Game/Motion action mapping;
+    // Music remains as a named profile slot rather than a separate media vocabulary.
     const GAME_META = {
       en: {
         'Game': { emoji: '\\uD83C\\uDFAE', name: 'Game', desc: 'Tilt, twist, stamp' },
-        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Music', desc: 'Volume & skip' }
+        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Music', desc: 'Same controls' }
       },
       pl: {
         'Game': { emoji: '\\uD83C\\uDFAE', name: 'Gra', desc: 'Przechył, obrót, stempel' },
-        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Muzyka', desc: 'Głośność i skok' }
+        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Muzyka', desc: 'Te same akcje' }
       }
     };
     function gameMetaFor(name) {
       const table = GAME_META[lang] || GAME_META.pl;
       return table[name];
     }
-    // Big on-screen callout word per emitted control, keyed by the gesture_label
-    // the engine sends. Both vocabularies are covered: the Game (Motion) engine
-    // emits the first-class turn-*/tilt-*/fire labels; the Music (classifier)
-    // engine emits the discrete rotate/scrub/back-forth/lift/flip labels.
+    // Big on-screen callout word per emitted control. The Motion engine emits the
+    // first-class labels used by every profile; legacy discrete labels remain here
+    // only as defensive fallbacks for old events.
     const calloutWords = {
       // Motion (Game) -- rotation-invariant tank scheme
       'turn-right': 'TURN RIGHT!',
@@ -1959,15 +1952,14 @@ def build_html() -> str:
     }
 
     function renderTilt() {
-      // Surface the body-frame TILT settings when (and only when) the Game profile
-      // (engine == 'motion') is active. NO calibrate, NO heading -- just the
-      // editable lean threshold + a live body-frame read (hd/he/tilt). Every other
-      // profile (Music / classifier) hides this block.
+      // Surface the body-frame TILT settings when engine == 'motion'. NO calibrate,
+      // NO heading -- just the editable lean threshold + a live body-frame read.
+      // Legacy classifier states hide this block.
       const isMotion = (state && state.engine) === 'motion';
       const section = document.getElementById('tilt-section');
       const engineName = document.getElementById('engine-name');
       if (section) section.hidden = !isMotion;
-      if (engineName) engineName.textContent = (state && state.engine) ? state.engine : 'classifier';
+      if (engineName) engineName.textContent = (state && state.engine) ? state.engine : 'motion';
       const m = (state && state.motion) || {};
       const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
       setText('motion-he', Number.isFinite(m.he) ? m.he : 0);
@@ -2819,14 +2811,14 @@ def build_detector(
     """Pick the per-sample control engine implied by ``config.engine`` at call time.
 
     Returns a drop-in for the ``detector`` parameter of ``run_ble_stream`` /
-    ``run_ble_session``: either the body-frame, continuous
-    :class:`MotionControlEngine` (when ``engine == 'motion'`` -- only the built-in
-    "Game" profile does) or the discrete :class:`LiveGestureDetector` (every other
-    profile). Both expose the same ``add_sample(elapsed_seconds, sample) ->
-    GesturePrediction | None`` / ``reset()`` contract. NOTE: the live app does NOT
-    use this directly for the stream -- it uses :class:`ProfileEngineRouter` so a
-    runtime profile switch re-routes input live; this helper is kept for tests and
-    callers that want the single engine for a fixed config.
+    ``run_ble_session``: the body-frame, continuous :class:`MotionControlEngine`
+    for normal app profiles, or the legacy discrete :class:`LiveGestureDetector`
+    if a caller deliberately supplies a classifier config. Both expose the same
+    ``add_sample(elapsed_seconds, sample) -> GesturePrediction | None`` / ``reset()``
+    contract. NOTE: the live app does NOT use this directly for the stream -- it
+    uses :class:`ProfileEngineRouter` so a runtime profile switch re-routes input
+    live; this helper is kept for tests and callers that want the single engine for
+    a fixed config.
     """
     if config.engine == ENGINE_MOTION:
         return MotionControlEngine(observer=observer)
@@ -2835,21 +2827,17 @@ def build_detector(
 
 class ProfileEngineRouter:
     """Route each BLE sample to the engine the ACTIVE profile uses, so a runtime
-    profile switch (Game <-> Music) takes effect immediately -- the live engine is
-    NOT frozen at stream start.
+    profile switch takes effect immediately -- the live engine is NOT frozen at
+    stream start.
 
-    The two built-in profiles use DISJOINT control vocabularies on DISJOINT engines:
-    Game runs the body-frame :class:`MotionControlEngine` (MOTION_LABELS); every
-    other profile runs the discrete :class:`LiveGestureDetector` (GESTURE_LABELS). If
-    the engine were fixed at stream start, switching profiles mid-stream would leave a
-    stale engine emitting labels the new profile's action map does not contain, so
-    ``record_prediction`` would miss every lookup and silently drop ALL input until
-    the app restarts. The router avoids that: it reads ``session.config.engine`` per
-    sample, feeds ONLY the active engine, and resets the newly-active engine on a
-    switch so it starts clean (the Motion engine re-seeds its neutral from the current
-    pose, the classifier empties its window) -- exactly like a fresh connect. It
-    exposes the same ``add_sample`` / ``reset`` contract as either engine, so the BLE
-    loop is untouched, and ``.motion`` stays available for the live tilt diagnostics.
+    Normal app profiles all resolve to the body-frame :class:`MotionControlEngine`,
+    but the router still keeps the legacy classifier branch available for tooling
+    and tests. It reads ``session.config.engine`` per sample, feeds ONLY the active
+    engine, and resets the newly-active engine on an engine switch so it starts
+    clean (Motion re-seeds its neutral; the classifier empties its window). It
+    exposes the same ``add_sample`` / ``reset`` contract as either engine, so the
+    BLE loop is untouched, and ``.motion`` stays available for the live tilt
+    diagnostics.
     """
 
     def __init__(self, session: "AppSession", motion, classifier) -> None:

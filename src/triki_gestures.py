@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 
-# The seven DISCRETE gesture labels produced by the hardware-tuned classifier
-# (triki_classifier / triki_live). They are the bindable controls of the "Music"
-# profile (twist=volume, stir=skip, stamp=play/pause, ...). The classifier is the
-# only thing that emits these; do not overload them for other input modalities.
+# The seven legacy DISCRETE gesture labels produced by the hardware-tuned
+# classifier (triki_classifier / triki_live). The main app's profiles now bind the
+# Motion/Game vocabulary, but these labels remain valid for older config imports,
+# diagnostics, and standalone classifier tooling.
 GESTURE_LABELS = (
     "rotate-cw",
     "rotate-ccw",
@@ -39,9 +39,9 @@ MOTION_LABELS = (
     "scrub-straight",
 )
 
-# Every bindable control label across BOTH engines. The two vocabularies are
-# disjoint (no label means two different things), so a stored binding can be
-# validated/normalised against this union without caring which engine made it.
+# Every known control label across both the current Motion engine and the legacy
+# classifier. The two vocabularies are disjoint, so stored bindings can be
+# validated/normalised against this union before migration filters them.
 ACTION_LABELS = GESTURE_LABELS + MOTION_LABELS
 
 GESTURE_LABEL_ALIASES = {

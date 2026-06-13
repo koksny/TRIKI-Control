@@ -26,9 +26,10 @@ from triki_key_emitter import (
 _logger = logging.getLogger("triki")
 
 
-# The app ships EXACTLY two built-in profiles: "Game" (the default) and "Music".
-# "Game" runs the body-frame Motion engine and auto-holds continuously; "Music"
-# runs the discrete classifier for one-shot media controls.
+# The app ships EXACTLY two built-in profile slots: "Game" (the default) and
+# "Music". Every profile uses the same body-frame Motion engine settings and
+# bindable controls as Game; Music is kept as a selectable slot, not a separate
+# legacy classifier vocabulary.
 GAME_PROFILE_NAME = "Game"
 MUSIC_PROFILE_NAME = "Music"
 DEFAULT_PROFILE_NAME = GAME_PROFILE_NAME
@@ -41,15 +42,15 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # 12->13: scrub-circular dropped (a round cap can't tell a circle from a line); the
 # single surviving scrub-straight is remapped to Space (use/door). The fold drops the
 # now-dead scrub-circular bind from older configs.
-CONFIG_VERSION = 13
+# 13->14: Music and custom profiles now use the same Motion/Game action vocabulary
+# and defaults as Game, dropping the old classifier-only action rows from Advanced.
+CONFIG_VERSION = 14
 MAX_MACRO_DELAY_MS = 5000  # ceiling for a single macro delay step; legit macros use sub-second delays
 
-# Control engines. "classifier" = the discrete LiveGestureDetector (used by the
-# "Music" profile for one-shot twist/stamp media controls). "motion" = the
-# body-frame continuous MotionControlEngine (used by the "Game" profile for
-# tilt/twist/stamp movement). The engine is a DERIVED property of the active
-# profile (see engine_for_profile): Game -> motion, everything else -> classifier,
-# so the stored value can never drift from the active profile.
+# Control engines. "classifier" is the old discrete LiveGestureDetector path kept
+# for tooling/legacy code; "motion" is the body-frame continuous MotionControlEngine
+# used by every app profile. The engine is a DERIVED property of the active profile
+# (see engine_for_profile), so the stored value can never drift from the UI.
 ENGINE_CLASSIFIER = "classifier"
 ENGINE_MOTION = "motion"
 VALID_ENGINES = (ENGINE_CLASSIFIER, ENGINE_MOTION)
@@ -64,9 +65,7 @@ LANG_EN = "en"
 VALID_LANGS = (LANG_PL, LANG_EN)
 DEFAULT_LANG = LANG_PL
 
-# The "Game" profile is the one (and only) preset wired to the body-frame Motion
-# engine. Activating it implies engine == "motion" and continuous auto-hold; the
-# "Music" profile (and any other name) uses the discrete classifier with hold==0.
+# Every profile is wired to the body-frame Motion engine and continuous auto-hold.
 # MOTION_PROFILE_NAME is retained as an ALIAS of the Game profile for any external
 # importer that still references the old symbol.
 MOTION_PROFILE_NAME = GAME_PROFILE_NAME
@@ -206,19 +205,19 @@ class TrikiConfig:
         # The app ships EXACTLY two BUILT-IN profiles, {Game, Music}, which always
         # exist with their new defaults. The nine LEGACY built-ins (Default, WASD
         # Game, Doom, Doom Motion, Doom / Steering, Presentation, 'Which Sausage,
-        # Mate?', Experimental Pointer; and 'Media', which folds onto Music) are
-        # DROPPED by name -- the maintainer wants them gone ("if I see 3 Doom
-        # profiles again..."). Any OTHER stored profile is a user-created custom
-        # one and is KEPT (so the management controls keep working); user OVERRIDES
-        # to Game/Music are folded onto the fresh defaults so Advanced edits persist.
+        # Mate?', Experimental Pointer, Media) are DROPPED by name -- the maintainer
+        # wants them gone ("if I see 3 Doom profiles again..."). Any OTHER stored
+        # profile is a user-created custom one and is KEPT (so the management
+        # controls keep working); user OVERRIDES to Game/Music are folded onto the
+        # fresh defaults so Advanced edits persist.
         merged_profiles = default_profile_map()  # the two built-ins, fresh
         for stored_name, stored_actions in self.profiles.items():
             normalized = normalize_profile_name(stored_name)
             body = _normalize_action_map(stored_actions)
             if normalized in BUILTIN_PROFILE_NAMES:
                 # User overrides onto a surviving built-in -- but only for a
-                # CURRENT-version config, and only rows in THAT built-in's own
-                # vocabulary (Game=MOTION_LABELS, Music=GESTURE_LABELS). A pre-vN
+                # CURRENT-version config, and only rows in the shared Game/Motion
+                # vocabulary. A pre-vN
                 # built-in body is the OLD scheme/defaults, so it is dropped and the
                 # fresh defaults win (one-time reset on the version bump).
                 if self.version >= CONFIG_VERSION:
@@ -226,18 +225,16 @@ class TrikiConfig:
                         _only_labels(body, labels_for_profile(normalized))
                     )
             elif normalized in _LEGACY_BUILTIN_NAMES:
-                # A retired built-in: 'Media' carries its (discrete) overrides onto
-                # Music; every other legacy built-in is dropped entirely.
-                if remap_legacy_profile_name(normalized) == MUSIC_PROFILE_NAME:
-                    merged_profiles[MUSIC_PROFILE_NAME].update(
-                        _only_labels(body, GESTURE_LABELS)
-                    )
+                # A retired built-in: all legacy bodies are dropped. The active name
+                # may still remap (Media->Music), but the old discrete rows no longer
+                # survive into Advanced.
+                pass
             else:
-                # A genuine user-created custom profile (runs the discrete
-                # classifier): keep it, merged over the discrete default so every
-                # gesture row is populated.
+                # A genuine user-created custom profile: keep it, merged over the
+                # same Motion/Game default so every profile has identical bindable
+                # controls.
                 custom = default_action_map()
-                custom.update(_only_labels(body, GESTURE_LABELS))
+                custom.update(_only_labels(body, labels_for_profile(normalized)))
                 merged_profiles[normalized] = custom
 
         # Resolve the active profile: a name that still exists after the collapse
@@ -271,9 +268,9 @@ class TrikiConfig:
             )
 
         actions = dict(merged_profiles[active_profile])
-        # hold_ms is auto-managed: the Game profile (Motion engine) auto-holds
-        # continuously (no toggle); Music (classifier) uses one-shot taps (0).
-        # hold_ms is auto-managed for the Motion (Game) profile; a PRE-version config
+        # hold_ms is auto-managed: every profile uses the Motion engine and
+        # auto-holds continuously (no toggle).
+        # hold_ms is auto-managed for Motion profiles; a PRE-version config
         # is reset to 0 so the app re-seeds the current default (old configs carried a
         # 400 ms hold that caused the turn-lag).
         hold_ms = (
@@ -283,8 +280,8 @@ class TrikiConfig:
             and self.version >= CONFIG_VERSION
             else 0
         )
-        # The control engine is a DERIVED property of the active profile: Game ->
-        # motion, everything else -> classifier. Deriving it (rather than trusting
+        # The control engine is a DERIVED property of the active profile: every
+        # profile resolves to motion. Deriving it (rather than trusting
         # a possibly-stale stored value) keeps engine and active_profile from ever
         # drifting apart.
         return TrikiConfig(
@@ -376,11 +373,8 @@ class ActionExecutor:
 
 
 def default_action_map() -> dict[str, ActionBinding]:
-    """The discrete-classifier default map -- the safety fallback for any profile
-    that is NOT a built-in (i.e. a user-created custom profile, which runs the
-    classifier). Keyed by the seven GESTURE_LABELS, on Doom-default movement keys
-    so a stray classifier gesture still does something sane; fully editable."""
-    return dict(_classifier_default_map())
+    """Universal profile fallback: same bindable controls/defaults as Game."""
+    return dict(_game_action_map())
 
 
 def _classifier_default_map() -> dict[str, ActionBinding]:
@@ -421,24 +415,9 @@ def _game_action_map() -> dict[str, ActionBinding]:
 
 
 def _music_action_map() -> dict[str, ActionBinding]:
-    # The single "Music" profile, run by the discrete classifier (NOT the Motion
-    # engine) so twist=volume and stamp=play/pause work as reliable one-shots.
-    #   rotate-cw/ccw -> volume up/down   (TWIST)
-    #   scrub-cw/ccw  -> media next/prev  (HIDDEN in Advanced: round-cap scrub is
-    #                    unreliable spin; kept here only so a stray scrub maps to a
-    #                    harmless media step, never shown as a bindable row)
-    #   back-forth    -> media play/pause (shake)
-    #   lift          -> media play/pause (STAMP)
-    #   flip-over     -> volume mute
-    return {
-        "rotate-cw": ActionBinding.key("volume-up"),
-        "rotate-ccw": ActionBinding.key("volume-down"),
-        "scrub-cw": ActionBinding.key("media-next"),
-        "scrub-ccw": ActionBinding.key("media-prev"),
-        "back-forth": ActionBinding.key("media-play-pause"),
-        "lift": ActionBinding.key("media-play-pause"),
-        "flip-over": ActionBinding.key("volume-mute"),
-    }
+    # Music is no longer a separate classifier/media vocabulary. It is a profile
+    # slot with the same action rows/defaults as Game, so Advanced is consistent.
+    return dict(_game_action_map())
 
 
 def default_profile_map() -> dict[str, dict[str, ActionBinding]]:
@@ -453,19 +432,13 @@ def default_profile_map() -> dict[str, dict[str, ActionBinding]]:
 
 
 def default_actions_for_profile(profile_name: str) -> dict[str, ActionBinding]:
-    # Built-ins get their own map (Game=motion labels, Music=gesture labels); any
-    # other (custom) profile runs the classifier, so it falls back to the discrete
-    # default map -- never the Game/motion vocabulary.
     normalized = normalize_profile_name(profile_name)
     return dict(default_profile_map().get(normalized, default_action_map()))
 
 
 def labels_for_profile(profile_name: str) -> tuple[str, ...]:
-    """The bindable control labels a profile's engine actually produces -- the
-    exact rows Advanced should list for it. MOTION_LABELS for the Game (Motion)
-    profile; GESTURE_LABELS for Music and every discrete-classifier profile. Also
-    used to filter a stored body onto the right vocabulary during migration."""
-    return MOTION_LABELS if engine_for_profile(profile_name) == ENGINE_MOTION else GESTURE_LABELS
+    """The bindable control labels Advanced should list for any profile."""
+    return MOTION_LABELS
 
 
 def _only_labels(
@@ -520,9 +493,7 @@ def normalize_hold_ms(hold_ms: Any) -> int:
 def normalize_engine(engine: Any) -> str:
     """Coerce a stored/selected engine value to a known engine name.
 
-    Unknown / missing values fall back to the classifier so old configs (which
-    carry no ``engine`` field at all) keep their existing behaviour and never
-    accidentally activate Motion mode.
+    Unknown / missing values fall back to the Motion engine used by every profile.
     """
     text = str(engine).strip().lower() if engine is not None else ""
     return text if text in VALID_ENGINES else DEFAULT_ENGINE
@@ -541,26 +512,25 @@ def normalize_lang(lang: Any) -> str:
 def engine_for_profile(profile_name: str) -> str:
     """The control engine implied by selecting ``profile_name``.
 
-    The "Game" profile runs the body-frame Motion engine (tilt/twist/stamp
-    movement + auto-hold); every other profile -- "Music" and any unknown name --
-    uses the discrete classifier. Deriving the engine from the active profile
-    means the stored engine value can never drift from the active profile.
+    Every profile runs the body-frame Motion engine (tilt/twist/stamp movement +
+    auto-hold). Deriving the engine from the active profile means the stored engine
+    value can never drift from the active profile.
     """
-    return ENGINE_MOTION if normalize_profile_name(profile_name) == GAME_PROFILE_NAME else ENGINE_CLASSIFIER
+    return ENGINE_MOTION
 
 
 # Fixed remap from any legacy profile name to the 2-profile world. The old media
-# preset folds onto Music; everything else (WASD Game, Doom, Doom Motion, Doom /
-# Steering, Default, Presentation, 'Which Sausage, Mate?', Experimental Pointer,
-# and any unknown name) folds onto Game.
+# preset name still selects Music; everything else (WASD Game, Doom, Doom Motion,
+# Doom / Steering, Default, Presentation, 'Which Sausage, Mate?', Experimental
+# Pointer, and any unknown name) folds onto Game.
 _LEGACY_PROFILE_REMAP = {
     "media": MUSIC_PROFILE_NAME,
     "music": MUSIC_PROFILE_NAME,
 }
 
 # The retired built-in profile names. A stored profile with one of these names is
-# treated as an OLD built-in and dropped on load (Media's overrides fold onto
-# Music); any other non-built-in name is a user-created custom profile and is kept.
+# treated as an OLD built-in and dropped on load; any other non-built-in name is a
+# user-created custom profile and is kept.
 _LEGACY_BUILTIN_NAMES = frozenset(
     {
         "Default",
@@ -632,5 +602,5 @@ def save_config(path: Path, config: TrikiConfig) -> None:
 # produces, so the Advanced rows, the engine output and the bindings can never
 # drift apart.
 assert set(_game_action_map()) == set(MOTION_LABELS)
-assert set(_music_action_map()) == set(GESTURE_LABELS)
+assert set(_music_action_map()) == set(MOTION_LABELS)
 assert set(_classifier_default_map()) == set(GESTURE_LABELS)
