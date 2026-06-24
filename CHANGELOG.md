@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.6
+
+- Added single-instance activation for the desktop app: launching TRIKI Control again now asks the already-running instance to reopen instead of starting another copy.
+- Added a local `show` control action so the tray-hidden WebView window can be shown by a second launch.
+- Kept browser-mode behavior consistent by reopening the existing local UI tab instead of spawning a duplicate server.
+
 ## 1.0.5
 
 - Preserved Game/Doom key overrides from 1.0.1 and 1.0.2 configs across the 1.0.4 Motion tuning schema update.

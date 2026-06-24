@@ -642,9 +642,14 @@ def handle_control(
     bus: EventBus,
     connection_control: ConnectionControl,
     command_bridge: BleCommandBridge | None = None,
+    show_window=None,
 ) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("control payload must be a JSON object")
+    if action == "show":
+        if show_window is not None:
+            show_window()
+        return session.snapshot()
     if action == "pairing":
         session.set_output_enabled(True)
         return connection_control.request_pairing(session, bus)
@@ -768,6 +773,7 @@ class AppHttpHandler(BaseHTTPRequestHandler):
                 bus=self.server.bus,
                 connection_control=self.server.connection_control,
                 command_bridge=self.server.command_bridge,
+                show_window=self.server.show_window,
             )
         except Exception as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -827,12 +833,14 @@ class AppHttpServer(ThreadingHTTPServer):
         bus: EventBus,
         connection_control: ConnectionControl,
         command_bridge: BleCommandBridge | None = None,
+        show_window=None,
     ) -> None:
         super().__init__(server_address, AppHttpHandler)
         self.session = session
         self.bus = bus
         self.connection_control = connection_control
         self.command_bridge = command_bridge or BleCommandBridge()
+        self.show_window = show_window
 
 
 class TrayController:
@@ -981,6 +989,19 @@ def post_control_action(
     with opener(request, timeout=timeout) as response:
         raw = response.read().decode("utf-8")
     return json.loads(raw or "{}")
+
+
+def activate_existing_instance(
+    base_url: str,
+    *,
+    opener=urlopen,
+    timeout: float = 0.75,
+) -> bool:
+    try:
+        post_control_action(base_url, "show", opener=opener, timeout=timeout)
+        return True
+    except Exception:
+        return False
 
 
 def build_html() -> str:
@@ -2752,7 +2773,13 @@ def schedule_browser_open(url: str, delay_seconds: float, opener=webbrowser.open
     return timer
 
 
-def run_webview_window(url: str, *, webview_module=None, enable_tray: bool = True) -> None:
+def run_webview_window(
+    url: str,
+    *,
+    webview_module=None,
+    enable_tray: bool = True,
+    on_show_window=None,
+) -> None:
     if webview_module is None:
         import webview as webview_module
 
@@ -2764,8 +2791,12 @@ def run_webview_window(url: str, *, webview_module=None, enable_tray: bool = Tru
         resizable=True,        # the UI now scales-to-fit (see #fit-stage), so the
         min_size=(360, 480),   # window can shrink onto a small monitor or stretch.
     )
-    if enable_tray and window is not None:
-        TrayController(window, url=url).start()
+    if window is not None:
+        controller = TrayController(window, url=url)
+        if on_show_window is not None:
+            on_show_window(controller.open_window)
+        if enable_tray:
+            controller.start()
     webview_module.start()
 
 
@@ -2986,6 +3017,10 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
         )
         write_console_line(warning, stream=sys.stderr)
         write_log_line(args.log_path, warning)
+    url = browser_url_for(args.host, args.port)
+    if activate_existing_instance(url):
+        write_log_line(args.log_path, f"EXISTING_INSTANCE_ACTIVATED url={url}")
+        return 0
     config = load_config(args.config_path)
     if args.output_enabled:
         config.output_enabled = True
@@ -3061,7 +3096,6 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
             },
         })
     server = AppHttpServer((args.host, args.port), session, bus, connection_control, command_bridge)
-    url = browser_url_for(args.host, args.port)
     write_log_line(args.log_path, f"SERVER_READY url={url}")
     thread = threading.Thread(
         target=lambda: asyncio.run(
@@ -3092,7 +3126,11 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
         write_console_line(f"OPEN {url}")
         write_log_line(args.log_path, f"WEBVIEW_START url={url}")
         try:
-            run_webview_window(url, enable_tray=not args.no_tray)
+            run_webview_window(
+                url,
+                enable_tray=not args.no_tray,
+                on_show_window=lambda show_window: setattr(server, "show_window", show_window),
+            )
         except Exception as exc:
             write_log_line(args.log_path, f"WEBVIEW_ERROR {type(exc).__name__}: {exc}")
             raise
@@ -3108,6 +3146,7 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
         return 0
 
     if args.ui == "browser":
+        server.show_window = lambda: schedule_browser_open(url, 0.0)
         schedule_browser_open(url, args.open_delay_seconds)
         write_log_line(args.log_path, f"BROWSER_OPEN_SCHEDULED delay={args.open_delay_seconds}")
     write_console_line(f"OPEN {url}")

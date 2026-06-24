@@ -11,6 +11,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import triki_app
 from triki_actions import (
     CONFIG_VERSION,
     ENGINE_MOTION,
@@ -42,6 +43,7 @@ from triki_app import (
     handle_control,
     ProfileEngineRouter,
     is_loopback_host,
+    main,
     parse_args,
     post_control_action,
     run_webview_window,
@@ -1056,6 +1058,103 @@ class TrikiAppTests(unittest.TestCase):
 
         self.assertEqual(stream.getvalue(), "OPEN http://127.0.0.1:8765/\n")
 
+    def test_activate_existing_instance_posts_show_control(self):
+        requests = []
+
+        def opener(request, timeout):
+            requests.append(
+                {
+                    "url": request.full_url,
+                    "method": request.get_method(),
+                    "body": request.data.decode("utf-8"),
+                    "timeout": timeout,
+                }
+            )
+
+            class Response:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+                def read(self):
+                    return b'{"state": {}}'
+
+            return Response()
+
+        activated = triki_app.activate_existing_instance(
+            "http://127.0.0.1:8766/",
+            opener=opener,
+            timeout=0.25,
+        )
+
+        self.assertTrue(activated)
+        self.assertEqual(requests[0]["url"], "http://127.0.0.1:8766/control?action=show")
+        self.assertEqual(requests[0]["method"], "POST")
+        self.assertEqual(requests[0]["body"], "{}")
+        self.assertEqual(requests[0]["timeout"], 0.25)
+
+    def test_activate_existing_instance_returns_false_when_no_server_is_running(self):
+        def opener(request, timeout):
+            raise OSError("connection refused")
+
+        self.assertFalse(
+            triki_app.activate_existing_instance(
+                "http://127.0.0.1:8766/",
+                opener=opener,
+                timeout=0.25,
+            )
+        )
+
+    def test_http_show_control_uses_server_window_callback(self):
+        shown = []
+        server = AppHttpServer(
+            ("127.0.0.1", 0),
+            AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter())),
+            EventBus(),
+            ConnectionControl(manual_pairing=True),
+            show_window=lambda: shown.append(True),
+        )
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{server.server_port}/control?action=show",
+                data=b"{}",
+                method="POST",
+            )
+            response = urlopen(request, timeout=2)
+            payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            thread.join(timeout=2)
+            server.server_close()
+
+        self.assertEqual(shown, [True])
+        self.assertEqual(payload["state"]["active_profile"], "Game")
+
+    def test_main_activates_existing_instance_and_exits_before_starting_server(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "app.log"
+            with (
+                patch("triki_app.activate_existing_instance", return_value=True) as activate,
+                patch("triki_app.AppHttpServer") as server_class,
+            ):
+                result = main([
+                    "--ui",
+                    "none",
+                    "--port",
+                    "9876",
+                    "--log-path",
+                    str(log_path),
+                    "--no-session-log",
+                ])
+
+        self.assertEqual(result, 0)
+        activate.assert_called_once_with("http://127.0.0.1:9876/")
+        server_class.assert_not_called()
+
     def test_run_webview_window_uses_embedded_desktop_window(self):
         class FakeWebview:
             def __init__(self):
@@ -1096,6 +1195,42 @@ class TrikiAppTests(unittest.TestCase):
         self.assertTrue(fake.created["kwargs"]["resizable"])
         self.assertEqual(fake.created["kwargs"]["width"], 1020)
         self.assertEqual(fake.created["kwargs"]["height"], 820)
+
+    def test_run_webview_window_registers_show_callback(self):
+        class FakeWindow:
+            def __init__(self):
+                self.loaded = []
+                self.shown = 0
+
+            def load_url(self, url):
+                self.loaded.append(url)
+
+            def show(self):
+                self.shown += 1
+
+        class FakeWebview:
+            def __init__(self):
+                self.window = FakeWindow()
+
+            def create_window(self, *args, **kwargs):
+                return self.window
+
+            def start(self):
+                pass
+
+        fake = FakeWebview()
+        callbacks = []
+
+        run_webview_window(
+            "http://127.0.0.1:8765/debug",
+            webview_module=fake,
+            enable_tray=False,
+            on_show_window=callbacks.append,
+        )
+        callbacks[0]()
+
+        self.assertEqual(fake.window.loaded, ["http://127.0.0.1:8765/"])
+        self.assertEqual(fake.window.shown, 1)
 
     def test_http_request_succeeds_without_stderr_for_windowed_builds(self):
         server = AppHttpServer(
