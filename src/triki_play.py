@@ -549,6 +549,8 @@ async def run_ble_stream(
     reconnect_cycle = 0
     while True:
         await connection_control.wait_for_pairing_request(session, bus)
+        if connection_control.is_shutdown_requested():
+            return 0
         reconnect_cycle += 1
         restart_after_disconnect = False
         for attempt in range(1, connect_attempts + 1):

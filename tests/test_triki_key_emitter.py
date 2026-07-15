@@ -1,17 +1,25 @@
 import unittest
 import ctypes
+import struct
 import threading
 import time
 from unittest.mock import patch
 
 from triki_key_emitter import (
-    DEFAULT_HOLD_MS,
+    BTN_LEFT,
+    DEFAULT_MOUSE_SPEED,
     DEFAULT_VOLUME_TAP_REPEAT_MS,
     DEFAULT_KEYMAP,
+    EV_REL,
     INPUT,
+    INPUT_MOUSE,
     KEYEVENTF_EXTENDEDKEY,
     KEYEVENTF_KEYUP,
     KEYEVENTF_SCANCODE,
+    MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MOVE,
+    REL_X,
     EV_KEY,
     EV_SYN,
     HoldKeyEmitter,
@@ -26,10 +34,12 @@ from triki_key_emitter import (
     UI_DEV_DESTROY,
     UI_SET_EVBIT,
     UI_SET_KEYBIT,
+    UI_SET_RELBIT,
     WindowsKeyEmitter,
     create_default_key_emitter,
     linux_evdev_code_for_key,
     macos_keycode_for_key,
+    normalize_mouse_speed,
     scancode_for_key,
     vk_for_key,
 )
@@ -68,12 +78,24 @@ class FakeQuartz:
     kCGSessionEventTap = 1
     kCGEventSourceStateHIDSystemState = 1
     NSSystemDefined = 14
+    kCGEventMouseMoved = 5
+    kCGEventLeftMouseDown = 1
+    kCGEventLeftMouseUp = 2
+    kCGEventRightMouseDown = 3
+    kCGEventRightMouseUp = 4
+    kCGEventOtherMouseDown = 25
+    kCGEventOtherMouseUp = 26
+    kCGMouseButtonLeft = 0
+    kCGMouseButtonRight = 1
+    kCGMouseButtonCenter = 2
 
     def __init__(self):
         self.sources = []
         self.keyboard_events = []
         self.system_events = []
+        self.mouse_events = []
         self.posts = []
+        self.cursor = (100.0, 200.0)
 
     def CGEventSourceCreate(self, state):
         source = ("source", state)
@@ -87,6 +109,17 @@ class FakeQuartz:
 
     def CGEventPost(self, tap, event):
         self.posts.append((tap, event))
+
+    def CGEventCreate(self, source):
+        return ("current", source)
+
+    def CGEventGetLocation(self, event):
+        return self.cursor
+
+    def CGEventCreateMouseEvent(self, source, event_type, location, button):
+        event = ("mouse", source, event_type, location, button)
+        self.mouse_events.append(event)
+        return event
 
     class NSEvent:
         @staticmethod
@@ -246,6 +279,29 @@ class KeyEmitterTests(unittest.TestCase):
         self.assertEqual(down.wScan, 0)
         self.assertEqual(down.dwFlags, 0)
 
+    def test_windows_emitter_sends_mouse_button_down_and_up(self):
+        user32 = FakeUser32()
+        emitter = WindowsKeyEmitter(user32=user32)
+
+        emitter.press_key("mouse-left-button")
+
+        down, up = user32.inputs
+        self.assertEqual(down.type, INPUT_MOUSE)
+        self.assertEqual(down.union.mi.dwFlags, MOUSEEVENTF_LEFTDOWN)
+        self.assertEqual(up.union.mi.dwFlags, MOUSEEVENTF_LEFTUP)
+
+    def test_windows_emitter_moves_mouse_relatively(self):
+        user32 = FakeUser32()
+        emitter = WindowsKeyEmitter(user32=user32)
+
+        emitter.move_pointer(-17, 9)
+
+        move = user32.inputs[0]
+        self.assertEqual(move.type, INPUT_MOUSE)
+        self.assertEqual(move.union.mi.dx, -17)
+        self.assertEqual(move.union.mi.dy, 9)
+        self.assertEqual(move.union.mi.dwFlags, MOUSEEVENTF_MOVE)
+
     def test_default_emitter_uses_lazy_linux_uinput_backend(self):
         calls = []
         fake = NullKeyEmitter()
@@ -362,6 +418,22 @@ class KeyEmitterTests(unittest.TestCase):
         self.assertNotEqual(down[1][7], up[1][7])
         self.assertEqual(sleeps, [0.025])
 
+    def test_macos_emitter_posts_mouse_button_and_relative_move_events(self):
+        quartz = FakeQuartz()
+        emitter = MacOSKeyEmitter(
+            quartz_module=quartz,
+            accessibility_checker=lambda: True,
+            sleep=lambda _seconds: None,
+        )
+
+        emitter.press_key("mouse-right-button")
+        emitter.move_pointer(-12, 7)
+
+        self.assertEqual(quartz.mouse_events[0][2], quartz.kCGEventRightMouseDown)
+        self.assertEqual(quartz.mouse_events[1][2], quartz.kCGEventRightMouseUp)
+        self.assertEqual(quartz.mouse_events[2][2], quartz.kCGEventMouseMoved)
+        self.assertEqual(quartz.mouse_events[2][3], (88.0, 207.0))
+
     def test_linux_evdev_key_codes_cover_game_and_media_keys(self):
         self.assertEqual(linux_evdev_code_for_key("left"), 105)
         self.assertEqual(linux_evdev_code_for_key("right"), 106)
@@ -395,13 +467,37 @@ class KeyEmitterTests(unittest.TestCase):
 
         self.assertIn((123, UI_SET_EVBIT, EV_KEY), ioctl_calls)
         self.assertIn((123, UI_SET_EVBIT, EV_SYN), ioctl_calls)
+        self.assertIn((123, UI_SET_EVBIT, EV_REL), ioctl_calls)
         self.assertIn((123, UI_SET_KEYBIT, 106), ioctl_calls)
+        self.assertIn((123, UI_SET_KEYBIT, BTN_LEFT), ioctl_calls)
+        self.assertIn((123, UI_SET_RELBIT, REL_X), ioctl_calls)
         self.assertIn((123, UI_DEV_CREATE, 0), ioctl_calls)
         self.assertIn((123, UI_DEV_DESTROY, 0), ioctl_calls)
         self.assertTrue(fake_device.closed)
         payload = b"".join(fake_device.writes)
         self.assertIn((EV_KEY).to_bytes(2, "little"), payload)
         self.assertIn((106).to_bytes(2, "little"), payload)
+
+    def test_linux_uinput_emitter_writes_mouse_button_and_move_events(self):
+        fake_device = FakeBinaryDevice()
+        emitter = LinuxUInputKeyEmitter(
+            device_path="/tmp/uinput",
+            opener=lambda *_args, **_kwargs: fake_device,
+            ioctl=lambda *_args: 0,
+            sleep=lambda _seconds: None,
+        )
+        config_write_count = len(fake_device.writes)
+
+        emitter.press_key("mouse-left-button")
+        emitter.move_pointer(-8, 5)
+
+        events = [
+            struct.unpack("@llHHi", payload)
+            for payload in fake_device.writes[config_write_count:]
+        ]
+        self.assertIn((0, 0, EV_KEY, BTN_LEFT, 1), events)
+        self.assertIn((0, 0, EV_KEY, BTN_LEFT, 0), events)
+        self.assertIn((0, 0, EV_REL, REL_X, -8), events)
 
     def test_output_controller_blocks_keys_until_enabled(self):
         emitter = NullKeyEmitter()
@@ -474,6 +570,16 @@ class KeyEmitterTests(unittest.TestCase):
         self.assertEqual(result.key_name, "d")
         self.assertEqual(emitter.pressed, ["d"])
 
+    def test_output_controller_accepts_mouse_actions(self):
+        emitter = NullKeyEmitter()
+        controller = KeyOutputController(emitter=emitter, enabled=True)
+        controller.set_mapping("rotate-cw", "mouse-move-right")
+
+        result = controller.handle_gesture("rotate-cw")
+
+        self.assertTrue(result.emitted)
+        self.assertEqual(emitter.pointer_moves, [(DEFAULT_MOUSE_SPEED, 0)])
+
 
 class ModifierKeyTests(unittest.TestCase):
     def test_vk_for_modifier_keys(self):
@@ -532,6 +638,7 @@ class RecordingEmitter:
         self.pressed = []
         self.downs = []
         self.ups = []
+        self.pointer_moves = []
         self.closed = False
 
     def press_key(self, key_name):
@@ -545,6 +652,10 @@ class RecordingEmitter:
     def key_up(self, key_name):
         with self._lock:
             self.ups.append(key_name)
+
+    def move_pointer(self, dx, dy):
+        with self._lock:
+            self.pointer_moves.append((dx, dy))
 
     def close(self):
         self.closed = True
@@ -626,6 +737,42 @@ class HoldKeyEmitterTests(unittest.TestCase):
         self.assertEqual(base.downs, [])
         self.assertEqual(base.ups, [])
         self.assertEqual(DEFAULT_VOLUME_TAP_REPEAT_MS, 80)
+        emitter.close()
+
+    def test_mouse_movement_repeats_each_sample_at_profile_speed(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=120, mouse_speed=18)
+
+        emitter.press_key("mouse-move-left")
+        emitter.press_key("mouse-move-left")
+        emitter.press_key("mouse-move-up")
+
+        self.assertEqual(base.pointer_moves, [(-18, 0), (-18, 0), (0, -18)])
+        self.assertEqual(base.downs, [])
+        self.assertEqual(base.ups, [])
+        emitter.close()
+
+    def test_mouse_button_uses_same_safe_hold_and_release_path_as_keyboard(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=120)
+
+        emitter.press_key("mouse-left-button")
+        emitter.press_key("mouse-left-button")
+
+        self.assertEqual(base.downs, ["mouse-left-button"])
+        emitter.release_all()
+        self.assertEqual(base.ups, ["mouse-left-button"])
+        emitter.close()
+
+    def test_mouse_speed_clamps_and_updates_at_runtime(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, mouse_speed=999)
+        self.assertEqual(emitter.mouse_speed, normalize_mouse_speed(999))
+
+        emitter.set_mouse_speed(3)
+        emitter.press_key("mouse-move-down")
+
+        self.assertEqual(base.pointer_moves, [(0, 3)])
         emitter.close()
 
     def test_non_volume_media_keys_still_do_not_repeat_while_held(self):

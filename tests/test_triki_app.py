@@ -42,6 +42,7 @@ from triki_app import (
     display_name_for_label,
     handle_control,
     ProfileEngineRouter,
+    is_allowed_control_origin,
     is_loopback_host,
     main,
     parse_args,
@@ -278,6 +279,30 @@ class TrikiAppTests(unittest.TestCase):
         self.assertEqual(null.downs, null.ups)
         emitter.close()
 
+    def test_connection_loss_disables_output_releases_keys_and_persists_off(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.json"
+            null = NullKeyEmitter()
+            emitter = HoldKeyEmitter(null, hold_ms=400)
+            session = AppSession(
+                config=TrikiConfig(output_enabled=True),
+                config_path=config_path,
+                executor=ActionExecutor(key_emitter=emitter),
+            )
+            session.set_status("ready", "UART_READY")
+            session.record_prediction(1.0, prediction("turn-right"))
+
+            state = session.set_status("disconnected", "TRIKI disconnected")
+            reloaded = AppSession(
+                config_path=config_path,
+                executor=ActionExecutor(key_emitter=NullKeyEmitter()),
+            )
+
+        self.assertFalse(state["output_enabled"])
+        self.assertEqual(null.downs, null.ups)
+        self.assertFalse(reloaded.config.output_enabled)
+        emitter.close()
+
     def test_switching_profile_releases_a_held_key(self):
         null = NullKeyEmitter()
         emitter = HoldKeyEmitter(null, hold_ms=400)
@@ -415,6 +440,12 @@ class TrikiAppTests(unittest.TestCase):
         for host in ("0.0.0.0", "::", "192.168.1.5"):
             self.assertFalse(is_loopback_host(host), host)
 
+    def test_control_origin_accepts_only_local_app_pages(self):
+        for origin in (None, "http://127.0.0.1:8766", "http://localhost:8766", "https://[::1]:8766"):
+            self.assertTrue(is_allowed_control_origin(origin), origin)
+        for origin in ("https://example.com", "null", "file:///tmp/index.html"):
+            self.assertFalse(is_allowed_control_origin(origin), origin)
+
     def test_app_session_persists_mapping_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "triki.json"
@@ -536,6 +567,69 @@ class TrikiAppTests(unittest.TestCase):
         )
         self.assertEqual(cleared["hold_ms"], 0)
         self.assertEqual(emitter.hold_ms, 0)
+
+    def test_mouse_speed_is_saved_and_applied_per_profile(self):
+        emitter = HoldKeyEmitter(NullKeyEmitter(), hold_ms=0)
+        session = AppSession(executor=ActionExecutor(key_emitter=emitter))
+        bus = EventBus()
+        control = ConnectionControl(manual_pairing=True)
+
+        game = handle_control(
+            session,
+            "mouse-speed",
+            {"value": 7},
+            bus=bus,
+            connection_control=control,
+        )
+        session.switch_profile("Music")
+        music = handle_control(
+            session,
+            "mouse-speed",
+            {"value": 30},
+            bus=bus,
+            connection_control=control,
+        )
+        session.switch_profile("Game")
+
+        self.assertEqual(game["motion"]["mouse_speed"], 7)
+        self.assertEqual(music["motion"]["mouse_speed"], 30)
+        self.assertEqual(session.snapshot()["motion"]["mouse_speed"], 7)
+        self.assertEqual(emitter.mouse_speed, 7)
+        emitter.close()
+
+    def test_output_control_requires_connection_to_enable_but_always_allows_disable(self):
+        session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
+        bus = EventBus()
+        control = ConnectionControl(manual_pairing=True)
+
+        with self.assertRaisesRegex(ValueError, "Connect TRIKI"):
+            handle_control(
+                session,
+                "output",
+                {"enabled": True},
+                bus=bus,
+                connection_control=control,
+            )
+
+        session.set_status("ready", "UART_READY")
+        enabled = handle_control(
+            session,
+            "output",
+            {"enabled": True},
+            bus=bus,
+            connection_control=control,
+        )
+        session.set_status("disconnected", "Disconnected")
+        disabled = handle_control(
+            session,
+            "output",
+            {"enabled": False},
+            bus=bus,
+            connection_control=control,
+        )
+
+        self.assertTrue(enabled["output_enabled"])
+        self.assertFalse(disabled["output_enabled"])
 
     def test_handle_control_test_key_reports_output_backend_error(self):
         class FailingEmitter:
@@ -724,9 +818,15 @@ class TrikiAppTests(unittest.TestCase):
         self.assertIn("CREDITS.md", payload["docs"])
         self.assertIn("LICENSE", payload["docs"])
         self.assertIn("docs/linux.md", payload["docs"])
+        project_root = Path(__file__).resolve().parents[1]
+        for relative_path in payload["docs"]:
+            self.assertTrue((project_root / relative_path).is_file(), relative_path)
 
-    def test_pairing_control_auto_enables_output_for_end_user_flow(self):
-        session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
+    def test_pairing_control_keeps_output_off_until_explicit_step_three(self):
+        session = AppSession(
+            config=TrikiConfig(output_enabled=True),
+            executor=ActionExecutor(key_emitter=NullKeyEmitter()),
+        )
         bus = EventBus()
         control = ConnectionControl(manual_pairing=True)
 
@@ -739,7 +839,7 @@ class TrikiAppTests(unittest.TestCase):
         )
 
         self.assertEqual(state["status"], "pairing")
-        self.assertTrue(state["output_enabled"])
+        self.assertFalse(state["output_enabled"])
         self.assertTrue(control.is_pairing_requested())
 
     def test_led_control_writes_hold_state_through_ble_bridge(self):
@@ -793,9 +893,22 @@ class TrikiAppTests(unittest.TestCase):
 
         self.assertIn('id="profile-select"', html)
         self.assertIn('id="new-profile-name"', html)
-        self.assertIn("Record Key", html)
+        self.assertIn("'action.record': 'Record key'", html)
         self.assertIn("profileNames", html)
         self.assertNotIn('href="/debug"', html)
+
+    def test_html_exposes_clear_quit_and_mouse_mapping_controls(self):
+        html = build_html()
+
+        self.assertIn('id="quit-button"', html)
+        self.assertIn("quit.confirm", html)
+        self.assertIn('id="mouse-speed"', html)
+        self.assertIn("mouse-left-button", html)
+        self.assertIn("mouse-move-up", html)
+        self.assertIn("TURN CONTROL OFF", html)
+        self.assertIn("const STATUS_TEXT", html)
+        self.assertIn("TRIKI zostało rozłączone. Sterowanie jest wyłączone.", html)
+        self.assertIn("battery.titleUnknown", html)
 
     def test_html_exposes_profile_import_export_controls(self):
         html = build_html()
@@ -1123,6 +1236,7 @@ class TrikiAppTests(unittest.TestCase):
             request = Request(
                 f"http://127.0.0.1:{server.server_port}/control?action=show",
                 data=b"{}",
+                headers={"Content-Type": "application/json"},
                 method="POST",
             )
             response = urlopen(request, timeout=2)
@@ -1265,6 +1379,7 @@ class TrikiAppTests(unittest.TestCase):
             request = Request(
                 f"http://127.0.0.1:{server.server_port}/control?action=frobnicate",
                 data=b"{}",
+                headers={"Content-Type": "application/json"},
                 method="POST",
             )
             with self.assertRaises(HTTPError) as context:
@@ -1276,6 +1391,94 @@ class TrikiAppTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, 400)
         self.assertIn("unknown control action", payload["error"])
+
+    def test_http_control_rejects_non_json_content_type(self):
+        server = AppHttpServer(
+            ("127.0.0.1", 0),
+            AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter())),
+            EventBus(),
+            ConnectionControl(manual_pairing=True),
+        )
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{server.server_port}/control?action=output",
+                data=b"enabled=false",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                method="POST",
+            )
+            with self.assertRaises(HTTPError) as context:
+                urlopen(request, timeout=2)
+            payload = json.loads(context.exception.read().decode("utf-8"))
+        finally:
+            thread.join(timeout=2)
+            server.server_close()
+
+        self.assertEqual(context.exception.code, 415)
+        self.assertIn("application/json", payload["error"])
+
+    def test_http_control_rejects_foreign_browser_origin(self):
+        server = AppHttpServer(
+            ("127.0.0.1", 0),
+            AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter())),
+            EventBus(),
+            ConnectionControl(manual_pairing=True),
+        )
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{server.server_port}/control?action=output",
+                data=b'{"enabled": false}',
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": "https://example.com",
+                },
+                method="POST",
+            )
+            with self.assertRaises(HTTPError) as context:
+                urlopen(request, timeout=2)
+            payload = json.loads(context.exception.read().decode("utf-8"))
+        finally:
+            thread.join(timeout=2)
+            server.server_close()
+
+        self.assertEqual(context.exception.code, 403)
+        self.assertIn("local app", payload["error"])
+
+    def test_http_quit_disables_output_and_invokes_app_callback(self):
+        callback_called = threading.Event()
+        session = AppSession(
+            config=TrikiConfig(output_enabled=True),
+            executor=ActionExecutor(key_emitter=NullKeyEmitter()),
+        )
+        server = AppHttpServer(
+            ("127.0.0.1", 0),
+            session,
+            EventBus(),
+            ConnectionControl(manual_pairing=True),
+            quit_app=callback_called.set,
+        )
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{server.server_port}/control?action=quit",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            payload = json.loads(urlopen(request, timeout=2).read().decode("utf-8"))
+            self.assertTrue(callback_called.wait(timeout=2))
+        finally:
+            thread.join(timeout=2)
+            server.server_close()
+
+        self.assertFalse(payload["state"]["output_enabled"])
 
     def _raw_control_status(self, content_length: str, body: bytes = b"{}") -> str:
         # Declare an arbitrary Content-Length without necessarily sending the
@@ -1297,6 +1500,7 @@ class TrikiAppTests(unittest.TestCase):
                 f"POST /control?action=output HTTP/1.1\r\n"
                 f"Host: 127.0.0.1\r\n"
                 f"Content-Length: {content_length}\r\n"
+                f"Content-Type: application/json\r\n"
                 f"Connection: close\r\n"
                 f"\r\n"
             ).encode("ascii") + body
@@ -1453,9 +1657,25 @@ class TrikiAppTests(unittest.TestCase):
             def destroy(self):
                 self.destroyed += 1
 
+        class FakeIcon:
+            def __init__(self):
+                self.notifications = []
+                self.stopped = 0
+
+            def notify(self, message, title):
+                self.notifications.append((message, title))
+
+            def stop(self):
+                self.stopped += 1
+
         window = FakeWindow()
         stopped = []
-        controller = TrayController(window, on_quit=lambda: stopped.append(True))
+        controller = TrayController(
+            window,
+            on_quit=lambda: stopped.append(True),
+            language="pl",
+        )
+        controller.icon = FakeIcon()
         controller.attach_close_handler()
 
         should_close = window.events.closing.handlers[0]()
@@ -1467,6 +1687,12 @@ class TrikiAppTests(unittest.TestCase):
         self.assertEqual(window.shown, 1)
         self.assertEqual(window.destroyed, 1)
         self.assertEqual(stopped, [True])
+        self.assertEqual(controller.icon.stopped, 1)
+        self.assertEqual(len(controller.icon.notifications), 1)
+        message, title = controller.icon.notifications[0]
+        self.assertIn("nadal działa", title)
+        self.assertIn("Wyłącz sterowanie", message)
+        self.assertIn("Zakończ", message)
 
     def test_tray_controller_can_request_pairing_and_open_diagnostics(self):
         class FakeWindow:
@@ -1574,7 +1800,7 @@ class TrikiAppTests(unittest.TestCase):
         labels = [item["text"] for item in controller.icon.menu]
         self.assertEqual(
             labels,
-            ["Open TRIKI Control", "Pair TRIKI", "Diagnostics", "Quit"],
+            ["Open TRIKI Control", "Disable control", "Pair TRIKI", "Diagnostics", "Quit"],
         )
         self.assertTrue(controller.icon.detached)
 
@@ -1976,7 +2202,6 @@ class MotionEngineAppIntegrationTests(unittest.TestCase):
         # A held tilt (static gravity) and a twist (yaw-dominated) NEVER fire 'lift'
         # in the engine, so the Game profile never pulses Ctrl from them -- the
         # structural guarantee that a tilt/turn can't be mistaken for a shot.
-        config = TrikiConfig(output_enabled=True).merged_with_defaults()
         # Held tilt.
         engine = MotionControlEngine()
         for t, sample in synth_dir_lean_samples(0.0, -1.0, deg=20.0, hold_s=1.5):

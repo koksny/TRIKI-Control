@@ -277,7 +277,6 @@ class CalibrationSession:
 
     def snapshot(self) -> dict:
         with self._lock:
-            action = self.current_action
             steps = []
             for index, item in enumerate(self.actions):
                 state = self._steps[item.label]

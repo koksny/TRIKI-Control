@@ -1,4 +1,3 @@
-import json
 import asyncio
 import unittest
 
@@ -83,6 +82,21 @@ class CalibrationServerTests(unittest.TestCase):
 
             control.request_pairing(session, bus)
             await asyncio.wait_for(wait_task, timeout=1.0)
+
+        asyncio.run(scenario())
+
+    def test_connection_control_shutdown_unblocks_manual_wait(self):
+        async def scenario():
+            session = CalibrationSession()
+            bus = EventBus()
+            control = ConnectionControl(manual_pairing=True)
+            wait_task = asyncio.create_task(control.wait_for_pairing_request(session, bus))
+            await asyncio.sleep(0.05)
+
+            control.request_shutdown()
+            await asyncio.wait_for(wait_task, timeout=1.0)
+
+            self.assertTrue(control.is_shutdown_requested())
 
         asyncio.run(scenario())
 

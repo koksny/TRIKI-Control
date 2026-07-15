@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0
+
+- Added an obvious in-app Quit button and a localized notification explaining that X hides TRIKI Control by the clock instead of closing it.
+- Added a tray command that immediately disables control, while keeping a separate Quit command for closing the app.
+- Added cross-platform mappings for left, right and middle mouse buttons plus pointer movement in four directions.
+- Added a per-profile mouse speed slider so Game and Music can use different pointer movement rates.
+- Made input shutdown safer: control starts OFF, pairing no longer enables it, connection loss releases held inputs, and OFF remains available while disconnected.
+- Fixed shutdown while Bluetooth is waiting for pairing so Quit also terminates the hidden background process.
+- Hardened the local control API with JSON content-type and browser-origin checks, and made config writes atomic.
+- Added cross-platform GitHub Actions checks and cleaned stale documentation and static-analysis findings while preserving the established Game/Doom bindings and motion tuning.
+
 ## 1.0.6
 
 - Added single-instance activation for the desktop app: launching TRIKI Control again now asks the already-running instance to reopen instead of starting another copy.

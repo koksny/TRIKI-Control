@@ -1,6 +1,6 @@
 # Linux notes
 
-Linux works, but it needs two things pip cannot give you: a GUI backend for the window, and permission to write keystrokes.
+Linux works, but it needs two things pip cannot give you: a GUI backend for the window, and permission to write keyboard and mouse events.
 
 ## GUI backend for pywebview
 
@@ -11,9 +11,9 @@ Linux works, but it needs two things pip cannot give you: a GUI backend for the 
 
 Install one through your distro's package manager. Without a backend, the app still runs its local server, so you can open `http://127.0.0.1:8766/` in any browser as a fallback.
 
-## Keyboard output via uinput
+## Keyboard and mouse output via uinput
 
-Keystrokes are written to **`/dev/uinput`**, which is root-only by default. Grant access without running the whole app as root:
+Keyboard and mouse events are written to **`/dev/uinput`**, which is root-only by default. Grant access without running the whole app as root:
 
 ```bash
 sudo modprobe uinput
@@ -21,7 +21,7 @@ sudo usermod -aG input "$USER"   # then log out and back in
 # or add a udev rule giving your user rw on /dev/uinput
 ```
 
-If output does nothing while the Output toggle is ON, this is almost always the cause. Check that your user can read and write `/dev/uinput`.
+If input does nothing while control is ON, this is almost always the cause. Check that your user can read and write `/dev/uinput`.
 
 ## Bluetooth
 

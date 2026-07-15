@@ -50,8 +50,6 @@ from typing import Callable
 from triki_classifier import (
     GRAVITY_UNITS,
     MotionFeatures,
-    classify_features,
-    extract_features,
 )
 from triki_gestures import MOTION_LABELS
 from triki_protocol import MotionSample
@@ -447,10 +445,6 @@ class MotionControlEngine:
         vert = abs(abs(_vdot(acc, g_hat)) - self.gravity_units)
         # TWIST about the vertical (gravity) axis, bias-removed.
         twist = _vdot(gyro_corr, g_hat)
-
-        # Smoothed-gravity lean -- used ONLY to gate the neutral relock (don't relearn
-        # a tilt/slide as rest).
-        horiz = math.hypot(self._g[0] - self._gref[0], self._g[1] - self._gref[1])
 
         # The cap's horizontal MOTION signal: the RAW accel deviation from the rest
         # pose in the d/e plane. This is INSTANTANEOUS (no EMA lag -> responsive,

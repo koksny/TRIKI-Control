@@ -155,7 +155,35 @@ KEY_NAME_TO_SCANCODE.update(
 )
 EXTENDED_KEYS = {0x21, 0x22, 0x25, 0x26, 0x27, 0x28, 0xA3, 0xA5}
 EXTENDED_SCANCODES = {0x48, 0x49, 0x4B, 0x4D, 0x50, 0x51}
+MOUSE_MOVE_DIRECTIONS = {
+    "mouse-move-left": (-1, 0),
+    "mouse-move-right": (1, 0),
+    "mouse-move-up": (0, -1),
+    "mouse-move-down": (0, 1),
+}
+MOUSE_BUTTON_NAMES = {
+    "mouse-left-button",
+    "mouse-right-button",
+    "mouse-middle-button",
+}
+MOUSE_ACTION_NAMES = frozenset((*MOUSE_MOVE_DIRECTIONS, *MOUSE_BUTTON_NAMES))
+DEFAULT_MOUSE_SPEED = 12
+MIN_MOUSE_SPEED = 1
+MAX_MOUSE_SPEED = 50
+INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
+MOUSEEVENTF_MOVE = 0x0001
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP = 0x0040
+WINDOWS_MOUSE_BUTTON_FLAGS = {
+    "mouse-left-button": (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+    "mouse-right-button": (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+    "mouse-middle-button": (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+}
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_EXTENDEDKEY = 0x0001
 KEYEVENTF_SCANCODE = 0x0008
@@ -166,9 +194,21 @@ UINT = ctypes.c_uint
 ULONG_PTR = ctypes.c_size_t
 EV_SYN = 0x00
 EV_KEY = 0x01
+EV_REL = 0x02
 SYN_REPORT = 0
+REL_X = 0x00
+REL_Y = 0x01
+BTN_LEFT = 0x110
+BTN_RIGHT = 0x111
+BTN_MIDDLE = 0x112
+LINUX_MOUSE_BUTTON_CODES = {
+    "mouse-left-button": BTN_LEFT,
+    "mouse-right-button": BTN_RIGHT,
+    "mouse-middle-button": BTN_MIDDLE,
+}
 UI_SET_EVBIT = 0x40045564
 UI_SET_KEYBIT = 0x40045565
+UI_SET_RELBIT = 0x40045566
 UI_DEV_CREATE = 0x5501
 UI_DEV_DESTROY = 0x5502
 BUS_USB = 0x03
@@ -325,6 +365,20 @@ def vk_for_key(key_name: str) -> int:
     if normalized not in KEY_NAME_TO_VK:
         raise ValueError(f"unsupported key name: {key_name}")
     return KEY_NAME_TO_VK[normalized]
+
+
+def validate_output_name(output_name: str) -> str:
+    normalized = normalize_key_name(output_name)
+    if normalized not in MOUSE_ACTION_NAMES:
+        vk_for_key(normalized)
+    return normalized
+
+
+def normalize_mouse_speed(value, fallback: int = DEFAULT_MOUSE_SPEED) -> int:
+    try:
+        return max(MIN_MOUSE_SPEED, min(MAX_MOUSE_SPEED, int(round(float(value)))))
+    except (TypeError, ValueError):
+        return fallback
 
 
 def scancode_for_key(key_name: str) -> int:
@@ -513,6 +567,9 @@ class LazyKeyEmitter:
     def key_up(self, key_name: str) -> None:
         self._ensure().key_up(key_name)
 
+    def move_pointer(self, dx: int, dy: int) -> None:
+        self._ensure().move_pointer(dx, dy)
+
     def close(self) -> None:
         if self._emitter is not None:
             close = getattr(self._emitter, "close", None)
@@ -525,7 +582,7 @@ class UnavailableKeyEmitter:
         self.reason = reason
 
     def press_key(self, key_name: str) -> None:
-        vk_for_key(key_name)
+        validate_output_name(key_name)
         raise KeyEmissionError(self.reason)
 
     def key_down(self, key_name: str) -> None:
@@ -533,6 +590,9 @@ class UnavailableKeyEmitter:
 
     def key_up(self, key_name: str) -> None:
         self.press_key(key_name)
+
+    def move_pointer(self, dx: int, dy: int) -> None:
+        raise KeyEmissionError(self.reason)
 
 
 class WindowsKeyEmitter:
@@ -549,6 +609,11 @@ class WindowsKeyEmitter:
             self.user32 = user32
 
     def press_key(self, key_name: str) -> None:
+        normalized = normalize_key_name(key_name)
+        if normalized in MOUSE_MOVE_DIRECTIONS:
+            dx, dy = MOUSE_MOVE_DIRECTIONS[normalized]
+            self.move_pointer(dx * DEFAULT_MOUSE_SPEED, dy * DEFAULT_MOUSE_SPEED)
+            return
         self.key_down(key_name)
         self.key_up(key_name)
 
@@ -560,6 +625,10 @@ class WindowsKeyEmitter:
 
     def _dispatch(self, key_name: str, *, key_up: bool) -> None:
         normalized = normalize_key_name(key_name)
+        if normalized in WINDOWS_MOUSE_BUTTON_FLAGS:
+            down_flag, up_flag = WINDOWS_MOUSE_BUTTON_FLAGS[normalized]
+            self._send_mouse_input(flags=up_flag if key_up else down_flag)
+            return
         if normalized in KEY_NAME_TO_SCANCODE:
             self._send_scancode(scancode_for_key(normalized), key_up=key_up)
             return
@@ -598,6 +667,36 @@ class WindowsKeyEmitter:
             detail = f" last_error={last_error}" if last_error else ""
             raise KeyEmissionError(f"SendInput failed for vk=0x{vk:02x}{detail}")
 
+    def move_pointer(self, dx: int, dy: int) -> None:
+        self._send_mouse_input(dx=int(dx), dy=int(dy), flags=MOUSEEVENTF_MOVE)
+
+    def _send_mouse_input(
+        self,
+        *,
+        dx: int = 0,
+        dy: int = 0,
+        mouse_data: int = 0,
+        flags: int,
+    ) -> None:
+        item = INPUT(
+            type=INPUT_MOUSE,
+            union=INPUTUNION(
+                mi=MOUSEINPUT(
+                    dx=dx,
+                    dy=dy,
+                    mouseData=mouse_data,
+                    dwFlags=flags,
+                    time=0,
+                    dwExtraInfo=0,
+                )
+            ),
+        )
+        sent = self.user32.SendInput(1, ctypes.byref(item), ctypes.sizeof(INPUT))
+        if sent != 1:
+            last_error = ctypes.get_last_error()
+            detail = f" last_error={last_error}" if last_error else ""
+            raise KeyEmissionError(f"SendInput failed for mouse flags=0x{flags:04x}{detail}")
+
 
 class LinuxUInputKeyEmitter:
     def __init__(
@@ -635,11 +734,16 @@ class LinuxUInputKeyEmitter:
         fd = self._device.fileno()
         self.ioctl(fd, UI_SET_EVBIT, EV_KEY)
         self.ioctl(fd, UI_SET_EVBIT, EV_SYN)
+        self.ioctl(fd, UI_SET_EVBIT, EV_REL)
         for key_name in keys:
             self.ioctl(fd, UI_SET_KEYBIT, linux_evdev_code_for_key(key_name))
+        for code in LINUX_MOUSE_BUTTON_CODES.values():
+            self.ioctl(fd, UI_SET_KEYBIT, code)
+        self.ioctl(fd, UI_SET_RELBIT, REL_X)
+        self.ioctl(fd, UI_SET_RELBIT, REL_Y)
         user_dev = struct.pack(
             LINUX_UINPUT_USER_DEV_FORMAT,
-            b"TRIKI Control Virtual Keyboard",
+            b"TRIKI Control Virtual Input",
             BUS_USB,
             0x5452,
             0x494B,
@@ -653,17 +757,35 @@ class LinuxUInputKeyEmitter:
         self.sleep(0.05)
 
     def press_key(self, key_name: str) -> None:
+        normalized = normalize_key_name(key_name)
+        if normalized in MOUSE_MOVE_DIRECTIONS:
+            dx, dy = MOUSE_MOVE_DIRECTIONS[normalized]
+            self.move_pointer(dx * DEFAULT_MOUSE_SPEED, dy * DEFAULT_MOUSE_SPEED)
+            return
         self.key_down(key_name)
         self.key_up(key_name)
 
     def key_down(self, key_name: str) -> None:
-        code = linux_evdev_code_for_key(key_name)
+        normalized = normalize_key_name(key_name)
+        code = LINUX_MOUSE_BUTTON_CODES.get(normalized)
+        if code is None:
+            code = linux_evdev_code_for_key(normalized)
         self._write_event(EV_KEY, code, 1)
         self._write_event(EV_SYN, SYN_REPORT, 0)
 
     def key_up(self, key_name: str) -> None:
-        code = linux_evdev_code_for_key(key_name)
+        normalized = normalize_key_name(key_name)
+        code = LINUX_MOUSE_BUTTON_CODES.get(normalized)
+        if code is None:
+            code = linux_evdev_code_for_key(normalized)
         self._write_event(EV_KEY, code, 0)
+        self._write_event(EV_SYN, SYN_REPORT, 0)
+
+    def move_pointer(self, dx: int, dy: int) -> None:
+        if dx:
+            self._write_event(EV_REL, REL_X, int(dx))
+        if dy:
+            self._write_event(EV_REL, REL_Y, int(dy))
         self._write_event(EV_SYN, SYN_REPORT, 0)
 
     def _write_event(self, event_type: int, code: int, value: int) -> None:
@@ -721,6 +843,15 @@ class MacOSKeyEmitter:
     def press_key(self, key_name: str) -> None:
         normalized = normalize_key_name(key_name)
         self._require_accessibility_permission()
+        if normalized in MOUSE_MOVE_DIRECTIONS:
+            dx, dy = MOUSE_MOVE_DIRECTIONS[normalized]
+            self._move_pointer_unchecked(dx * DEFAULT_MOUSE_SPEED, dy * DEFAULT_MOUSE_SPEED)
+            return
+        if normalized in MOUSE_BUTTON_NAMES:
+            self._send_mouse_button(normalized, key_down=True)
+            self.sleep(self.key_press_seconds)
+            self._send_mouse_button(normalized, key_down=False)
+            return
         if normalized in MACOS_MEDIA_KEY_TYPES:
             self._send_media_key(MACOS_MEDIA_KEY_TYPES[normalized], key_down=True)
             self.sleep(self.key_press_seconds)
@@ -740,6 +871,9 @@ class MacOSKeyEmitter:
     def _set_key(self, key_name: str, *, key_down: bool) -> None:
         normalized = normalize_key_name(key_name)
         self._require_accessibility_permission()
+        if normalized in MOUSE_BUTTON_NAMES:
+            self._send_mouse_button(normalized, key_down=key_down)
+            return
         if normalized in MACOS_MEDIA_KEY_TYPES:
             self._send_media_key(MACOS_MEDIA_KEY_TYPES[normalized], key_down=key_down)
             return
@@ -759,6 +893,60 @@ class MacOSKeyEmitter:
         if event is None:
             raise KeyEmissionError(f"macOS CGEvent creation failed for keycode={keycode}")
         self.quartz.CGEventPost(self.event_tap, event)
+
+    def move_pointer(self, dx: int, dy: int) -> None:
+        self._require_accessibility_permission()
+        self._move_pointer_unchecked(dx, dy)
+
+    def _move_pointer_unchecked(self, dx: int, dy: int) -> None:
+        x, y = self._mouse_position()
+        event = self.quartz.CGEventCreateMouseEvent(
+            self.event_source,
+            self.quartz.kCGEventMouseMoved,
+            (x + int(dx), y + int(dy)),
+            self.quartz.kCGMouseButtonLeft,
+        )
+        if event is None:
+            raise KeyEmissionError("macOS mouse movement event creation failed.")
+        self.quartz.CGEventPost(self.event_tap, event)
+
+    def _send_mouse_button(self, button_name: str, *, key_down: bool) -> None:
+        event_names = {
+            "mouse-left-button": (
+                "kCGMouseButtonLeft",
+                "kCGEventLeftMouseDown",
+                "kCGEventLeftMouseUp",
+            ),
+            "mouse-right-button": (
+                "kCGMouseButtonRight",
+                "kCGEventRightMouseDown",
+                "kCGEventRightMouseUp",
+            ),
+            "mouse-middle-button": (
+                "kCGMouseButtonCenter",
+                "kCGEventOtherMouseDown",
+                "kCGEventOtherMouseUp",
+            ),
+        }
+        button_attr, down_attr, up_attr = event_names[button_name]
+        event = self.quartz.CGEventCreateMouseEvent(
+            self.event_source,
+            getattr(self.quartz, down_attr if key_down else up_attr),
+            self._mouse_position(),
+            getattr(self.quartz, button_attr),
+        )
+        if event is None:
+            raise KeyEmissionError(f"macOS mouse button event creation failed for {button_name}")
+        self.quartz.CGEventPost(self.event_tap, event)
+
+    def _mouse_position(self) -> tuple[float, float]:
+        current = self.quartz.CGEventCreate(None)
+        if current is None:
+            raise KeyEmissionError("macOS cursor position event creation failed.")
+        point = self.quartz.CGEventGetLocation(current)
+        if hasattr(point, "x") and hasattr(point, "y"):
+            return float(point.x), float(point.y)
+        return float(point[0]), float(point[1])
 
     def _send_media_key(self, key_type: int, *, key_down: bool) -> None:
         flags = MACOS_MEDIA_KEY_DOWN_FLAGS if key_down else MACOS_MEDIA_KEY_UP_FLAGS
@@ -801,18 +989,24 @@ class NullKeyEmitter:
         self.pressed: list[str] = []
         self.downs: list[str] = []
         self.ups: list[str] = []
+        self.pointer_moves: list[tuple[int, int]] = []
 
     def press_key(self, key_name: str) -> None:
-        vk_for_key(key_name)
-        self.pressed.append(normalize_key_name(key_name))
+        normalized = validate_output_name(key_name)
+        if normalized in MOUSE_MOVE_DIRECTIONS:
+            dx, dy = MOUSE_MOVE_DIRECTIONS[normalized]
+            self.move_pointer(dx * DEFAULT_MOUSE_SPEED, dy * DEFAULT_MOUSE_SPEED)
+            return
+        self.pressed.append(normalized)
 
     def key_down(self, key_name: str) -> None:
-        vk_for_key(key_name)
-        self.downs.append(normalize_key_name(key_name))
+        self.downs.append(validate_output_name(key_name))
 
     def key_up(self, key_name: str) -> None:
-        vk_for_key(key_name)
-        self.ups.append(normalize_key_name(key_name))
+        self.ups.append(validate_output_name(key_name))
+
+    def move_pointer(self, dx: int, dy: int) -> None:
+        self.pointer_moves.append((int(dx), int(dy)))
 
 
 DEFAULT_HOLD_MS = 400
@@ -843,6 +1037,7 @@ class HoldKeyEmitter:
         hold_ms: int = 0,
         max_hold_ms: int = MAX_HOLD_MS,
         volume_tap_repeat_ms: int = DEFAULT_VOLUME_TAP_REPEAT_MS,
+        mouse_speed: int = DEFAULT_MOUSE_SPEED,
         monotonic: Callable[[], float] = time.monotonic,
         observer=None,
     ) -> None:
@@ -850,6 +1045,7 @@ class HoldKeyEmitter:
         self._observer = observer
         self._max_hold_ms = max(0, int(max_hold_ms))
         self._volume_tap_repeat_seconds = max(0.0, int(volume_tap_repeat_ms) / 1000.0)
+        self._mouse_speed = normalize_mouse_speed(mouse_speed)
         self._monotonic = monotonic
         self._hold_seconds = self._clamp_seconds(hold_ms)
         self._cond = threading.Condition()
@@ -881,9 +1077,24 @@ class HoldKeyEmitter:
                 self._release_all_locked()
             self._cond.notify_all()
 
+    @property
+    def mouse_speed(self) -> int:
+        return self._mouse_speed
+
+    def set_mouse_speed(self, mouse_speed: int) -> None:
+        with self._cond:
+            self._mouse_speed = normalize_mouse_speed(mouse_speed)
+
     def press_key(self, key_name: str) -> None:
         key = normalize_key_name(key_name)
         with self._cond:
+            if key in MOUSE_MOVE_DIRECTIONS:
+                unit_x, unit_y = MOUSE_MOVE_DIRECTIONS[key]
+                dx = unit_x * self._mouse_speed
+                dy = unit_y * self._mouse_speed
+                self._base.move_pointer(dx, dy)
+                self._notify("move", key, dx=dx, dy=dy)
+                return
             hold_seconds = self._hold_seconds
             if hold_seconds <= 0:
                 self._base.press_key(key)
@@ -998,8 +1209,7 @@ class KeyOutputController:
     def set_mapping(self, gesture_label: str, key_name: str | None) -> None:
         gesture_label = normalize_gesture_label(gesture_label)
         if key_name is not None:
-            vk_for_key(key_name)
-            key_name = normalize_key_name(key_name)
+            key_name = validate_output_name(key_name)
         self.keymap[gesture_label] = key_name
 
     def handle_gesture(self, gesture_label: str) -> KeyOutputResult:

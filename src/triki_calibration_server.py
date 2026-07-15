@@ -82,9 +82,17 @@ class ConnectionControl:
         self.auto_after_first_pairing = auto_after_first_pairing
         self._auto_reconnect_enabled = False
         self._pairing_requested = threading.Event()
+        self._shutdown_requested = threading.Event()
 
     def is_pairing_requested(self) -> bool:
         return self._pairing_requested.is_set()
+
+    def is_shutdown_requested(self) -> bool:
+        return self._shutdown_requested.is_set()
+
+    def request_shutdown(self) -> None:
+        self._shutdown_requested.set()
+        self._pairing_requested.set()
 
     def request_pairing(self, session: CalibrationSession, bus: EventBus) -> dict:
         self._pairing_requested.set()
@@ -102,6 +110,8 @@ class ConnectionControl:
         session: CalibrationSession,
         bus: EventBus,
     ) -> None:
+        if self.is_shutdown_requested():
+            return
         if not self.manual_pairing:
             return
         if self.auto_after_first_pairing and self._auto_reconnect_enabled:
@@ -114,7 +124,12 @@ class ConnectionControl:
             ),
         )
         bus.publish({"type": "state", "state": state})
-        await asyncio.to_thread(self._pairing_requested.wait)
+        while not self._pairing_requested.is_set():
+            if self.is_shutdown_requested():
+                return
+            await asyncio.sleep(0.05)
+        if self.is_shutdown_requested():
+            return
         self._pairing_requested.clear()
         if self.auto_after_first_pairing:
             self._auto_reconnect_enabled = True
@@ -382,6 +397,8 @@ async def run_ble_stream(
 
     while True:
         await connection_control.wait_for_pairing_request(session, bus)
+        if connection_control.is_shutdown_requested():
+            return 0
         reconnect_cycle += 1
         restart_after_disconnect = False
         for attempt in range(1, connect_attempts + 1):

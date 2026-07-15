@@ -33,7 +33,13 @@ from triki_actions import (
     remap_legacy_profile_name,
     save_config,
 )
-from triki_key_emitter import KeyEmissionError, NullKeyEmitter, vk_for_key
+from triki_key_emitter import (
+    DEFAULT_MOUSE_SPEED,
+    KeyEmissionError,
+    NullKeyEmitter,
+    normalize_mouse_speed,
+    vk_for_key,
+)
 
 
 class FailingEmitter:
@@ -112,6 +118,8 @@ class TrikiActionTests(unittest.TestCase):
         self.assertLess(music.turn_threshold, game.turn_threshold)
         self.assertEqual(game.turn_sensitivity, 50.0)
         self.assertGreater(music.turn_sensitivity, game.turn_sensitivity)
+        self.assertEqual(game.mouse_speed, DEFAULT_MOUSE_SPEED)
+        self.assertEqual(music.mouse_speed, DEFAULT_MOUSE_SPEED)
 
     def test_empty_config_starts_with_two_profiles_active_game(self):
         config = TrikiConfig().merged_with_defaults()
@@ -137,6 +145,18 @@ class TrikiActionTests(unittest.TestCase):
         self.assertTrue(result.emitted)
         self.assertEqual(result.description, "volume-up")
         self.assertEqual(emitter.pressed, ["volume-up"])
+
+    def test_action_executor_runs_mouse_button_and_move_actions(self):
+        emitter = NullKeyEmitter()
+        executor = ActionExecutor(key_emitter=emitter)
+
+        button_result = executor.execute(ActionBinding.key("mouse-left-button"))
+        move_result = executor.execute(ActionBinding.key("mouse-move-right"))
+
+        self.assertTrue(button_result.emitted)
+        self.assertTrue(move_result.emitted)
+        self.assertEqual(emitter.pressed, ["mouse-left-button"])
+        self.assertEqual(emitter.pointer_moves, [(DEFAULT_MOUSE_SPEED, 0)])
 
     def test_action_executor_runs_macro_with_delay(self):
         emitter = NullKeyEmitter()
@@ -207,6 +227,34 @@ class TrikiActionTests(unittest.TestCase):
         # and ships the fresh first-class Game built-in (active profile -> Game).
         self.assertEqual(loaded.actions["turn-right"].key_name, "right")
         self.assertEqual(loaded.active_profile, "Game")
+
+    def test_mouse_speed_round_trips_and_invalid_values_use_profile_fallback(self):
+        config = TrikiConfig(
+            version=CONFIG_VERSION,
+            profile_settings={
+                "Game": MotionProfileSettings(mouse_speed=24),
+                "Music": {"mouse_speed": "bad"},
+            },
+        ).merged_with_defaults()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+            save_config(path, config)
+            loaded = load_config(path)
+
+        self.assertEqual(loaded.profile_settings["Game"].mouse_speed, 24)
+        self.assertEqual(loaded.profile_settings["Music"].mouse_speed, DEFAULT_MOUSE_SPEED)
+        self.assertEqual(normalize_mouse_speed(-100), 1)
+        self.assertEqual(normalize_mouse_speed(999), 50)
+
+    def test_config_save_is_atomic_and_leaves_no_temporary_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triki.json"
+
+            save_config(path, TrikiConfig().merged_with_defaults())
+
+            self.assertTrue(path.exists())
+            self.assertEqual(list(Path(directory).glob("*.tmp")), [])
 
     def test_load_config_collapses_to_two_profiles(self):
         with tempfile.TemporaryDirectory() as directory:

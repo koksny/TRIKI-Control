@@ -63,7 +63,7 @@ Then build with the spec for your platform.
 .\.venv\Scripts\python.exe -m PyInstaller --noconfirm TRIKI-Control.spec
 ```
 
-This produces `dist\TRIKI-Control.exe`, a single file, no install. `TRIKI-Control-Debug.spec` builds the same app with a console window attached, which is handy when you want to watch the connection log live.
+This produces `dist\TRIKI-Control.exe`, a single file, no install. `TRIKI-Control-Debug.spec` builds the same app with a console window attached, which is handy when you want to watch the connection log live. The normal build includes the Windows icon, tray icon and OpenSSL DLLs needed by the embedded WebView runtime.
 
 > Build from a dedicated Windows virtualenv (e.g. `.venv-windows`) to keep build tooling out of your run environment. Calling PyInstaller on the spec directly, as above, is the dependable route.
 
@@ -98,4 +98,4 @@ python -m pip install pytest
 python -m pytest tests/
 ```
 
-A `conftest.py` at the repo root puts `src/` on the path, so the tests `import triki_*` directly. Be aware that the suite is mid-migration: a chunk of it still targets an earlier control scheme (a directional/WASD-style design that predates the rotation-invariant engine) and those cases fail by design until they are rewritten against the current engine. The protocol, action-mapping, and key-emitter tests are the trustworthy ones today.
+A `conftest.py` at the repo root puts `src/` on the path, so the tests `import triki_*` directly. The suite covers the current rotation-invariant Game/Doom controls, profile migration, local API, keyboard and mouse emitters, packaging helpers, and recorded-motion regressions. Platform-specific integration tests skip automatically when their native backend is unavailable.

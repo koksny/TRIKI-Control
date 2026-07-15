@@ -29,6 +29,7 @@ from triki_actions import (
     normalize_gesture_label,
     normalize_hold_ms,
     normalize_lang,
+    normalize_mouse_speed,
     normalize_profile_name,
     normalize_tilt_threshold,
     normalize_turn_threshold,
@@ -61,6 +62,7 @@ MAX_CONTROL_BODY_BYTES = 256 * 1024
 # Cap how many profiles a single import may carry. merged_with_defaults() always
 # injects the built-ins, so a normal export/import stays well under this limit.
 MAX_IMPORT_PROFILES = 64
+OUTPUT_ACTIVE_STATUSES = frozenset({"connected", "ready"})
 
 # Default key-hold for the Motion engine. The engine re-emits the active intent
 # every sample, so the hold only needs to BRIDGE the gap between samples to stay
@@ -85,6 +87,15 @@ def apply_motion_profile_settings(engine, settings) -> None:
         threshold_setter = getattr(engine, "set_turn_threshold", None)
         if threshold_setter is not None:
             threshold_setter(settings.turn_threshold)
+    except Exception:
+        pass
+
+
+def apply_output_profile_settings(emitter, settings) -> None:
+    try:
+        setter = getattr(emitter, "set_mouse_speed", None)
+        if setter is not None:
+            setter(settings.mouse_speed)
     except Exception:
         pass
 
@@ -140,7 +151,13 @@ class AppSession:
             default_motion_settings_for_profile(self.config.active_profile),
         )
 
-    def _set_active_motion_settings_locked(self, *, turn_threshold=None, turn_sensitivity=None) -> None:
+    def _set_active_motion_settings_locked(
+        self,
+        *,
+        turn_threshold=None,
+        turn_sensitivity=None,
+        mouse_speed=None,
+    ) -> None:
         current = self._active_motion_settings_locked()
         self.config.profile_settings[self.config.active_profile] = type(current)(
             turn_threshold=(
@@ -153,13 +170,24 @@ class AppSession:
                 if turn_sensitivity is not None
                 else current.turn_sensitivity
             ),
+            mouse_speed=(
+                normalize_mouse_speed(mouse_speed, current.mouse_speed)
+                if mouse_speed is not None
+                else current.mouse_speed
+            ),
         )
 
     def _apply_motion_settings_locked(self) -> None:
-        apply_motion_profile_settings(self._motion_engine, self._active_motion_settings_locked())
+        settings = self._active_motion_settings_locked()
+        apply_motion_profile_settings(self._motion_engine, settings)
+        apply_output_profile_settings(self.executor.key_emitter, settings)
 
     def set_status(self, status: str, message: str) -> dict:
         with self._lock:
+            output_was_enabled = self.config.output_enabled
+            if status not in OUTPUT_ACTIVE_STATUSES:
+                self.config.output_enabled = False
+                self._release_held_keys()
             self.status = status
             self.message = message
             self._status_sequence += 1
@@ -174,6 +202,10 @@ class AppSession:
             self._connection_log = self._connection_log[-80:]
             if self.logger is not None:
                 self.logger.log("status", {"status": status, "message": message})
+                if output_was_enabled and not self.config.output_enabled:
+                    self.logger.log("output", {"enabled": False, "reason": status})
+            if output_was_enabled and not self.config.output_enabled:
+                self._save_config()
             return self.snapshot()
 
     def set_battery_level(self, percent: int | None, message: str = "") -> dict:
@@ -260,6 +292,19 @@ class AppSession:
             self._apply_motion_settings_locked()
             if self.logger is not None:
                 self.logger.log("turn_sensitivity", {"value": value, "profile": self.config.active_profile})
+            self._save_config()
+            return self.snapshot()
+
+    def set_mouse_speed(self, value) -> dict:
+        value = normalize_mouse_speed(value)
+        with self._lock:
+            self._set_active_motion_settings_locked(mouse_speed=value)
+            self._apply_motion_settings_locked()
+            if self.logger is not None:
+                self.logger.log(
+                    "mouse_speed",
+                    {"value": value, "profile": self.config.active_profile},
+                )
             self._save_config()
             return self.snapshot()
 
@@ -519,6 +564,7 @@ class AppSession:
             "tilt_on": round(float(getattr(engine, "tilt_on", 7.6)), 1),
             "turn_threshold": round(float(getattr(engine, "turn_threshold", settings.turn_threshold)), 0),
             "turn_sensitivity": round(float(getattr(engine, "turn_sensitivity", settings.turn_sensitivity)), 0),
+            "mouse_speed": settings.mouse_speed,
             "direction": str(getattr(engine, "_last_direction", "idle")),
             "fire": bool(getattr(engine, "_last_fire", False)),
         }
@@ -626,12 +672,21 @@ def build_about_payload(session: AppSession) -> dict:
             "README.md",
             "CREDITS.md",
             "LICENSE",
+            "docs/build.md",
+            "docs/controls.md",
+            "docs/how-it-works.md",
             "docs/linux.md",
+            "docs/macos.md",
             "docs/protocol.md",
-            "docs/architecture.md",
-            "docs/roadmap.md",
         ],
     }
+
+
+def is_allowed_control_origin(origin: str | None) -> bool:
+    if not origin:
+        return True
+    parsed = urlparse(origin)
+    return parsed.scheme in {"http", "https"} and is_loopback_host(parsed.hostname or "")
 
 
 def handle_control(
@@ -651,8 +706,9 @@ def handle_control(
             show_window()
         return session.snapshot()
     if action == "pairing":
-        session.set_output_enabled(True)
         return connection_control.request_pairing(session, bus)
+    if action == "quit":
+        return session.set_output_enabled(False)
     if action == "led":
         if command_bridge is None:
             raise RuntimeError("TRIKI LED control is not available.")
@@ -663,7 +719,10 @@ def handle_control(
             "TRIKI LED test on." if enabled else "TRIKI LED test off.",
         )
     if action == "output":
-        return session.set_output_enabled(bool(payload.get("enabled")))
+        enabled = bool(payload.get("enabled"))
+        if enabled and session.status not in OUTPUT_ACTIVE_STATUSES:
+            raise ValueError("Connect TRIKI before turning control on.")
+        return session.set_output_enabled(enabled)
     if action == "hold":
         return session.set_hold_ms(payload.get("ms", 0))
     if action == "tilt":
@@ -672,6 +731,8 @@ def handle_control(
         return session.set_turn_threshold(payload.get("value"))
     if action == "turn-sensitivity":
         return session.set_turn_sensitivity(payload.get("value"))
+    if action == "mouse-speed":
+        return session.set_mouse_speed(payload.get("value"))
     if action == "lang":
         return session.set_lang(str(payload.get("lang", "pl")))
     if action == "test-key":
@@ -762,6 +823,19 @@ class AppHttpHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.close_connection = True
             return
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            self._send_json(
+                {"error": "control requests require application/json"},
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+            )
+            return
+        if not is_allowed_control_origin(self.headers.get("Origin")):
+            self._send_json(
+                {"error": "control requests are only accepted from the local app"},
+                HTTPStatus.FORBIDDEN,
+            )
+            return
         try:
             body = self.rfile.read(length).decode("utf-8") if length else "{}"
             payload = json.loads(body or "{}")
@@ -780,6 +854,10 @@ class AppHttpHandler(BaseHTTPRequestHandler):
             return
         self.server.bus.publish({"type": "state", "state": state})
         self._send_json({"state": state})
+        if action == "quit" and self.server.quit_app is not None:
+            timer = threading.Timer(0.05, self.server.quit_app)
+            timer.daemon = True
+            timer.start()
 
     def _stream_events(self) -> None:
         subscriber = self.server.bus.subscribe()
@@ -834,6 +912,7 @@ class AppHttpServer(ThreadingHTTPServer):
         connection_control: ConnectionControl,
         command_bridge: BleCommandBridge | None = None,
         show_window=None,
+        quit_app=None,
     ) -> None:
         super().__init__(server_address, AppHttpHandler)
         self.session = session
@@ -841,6 +920,7 @@ class AppHttpServer(ThreadingHTTPServer):
         self.connection_control = connection_control
         self.command_bridge = command_bridge or BleCommandBridge()
         self.show_window = show_window
+        self.quit_app = quit_app
 
 
 class TrayController:
@@ -851,6 +931,7 @@ class TrayController:
         url: str | None = None,
         on_quit=None,
         opener=urlopen,
+        language: str = "en",
         pystray_module=None,
         image_module=None,
         image_draw_module=None,
@@ -859,12 +940,44 @@ class TrayController:
         self.url = url
         self.on_quit = on_quit
         self.opener = opener
+        self.language = "pl" if language == "pl" else "en"
         self.pystray_module = pystray_module
         self.image_module = image_module
         self.image_draw_module = image_draw_module
         self.icon = None
         self._allow_close = False
         self._close_handler_attached = False
+
+    def _text(self, key: str) -> str:
+        strings = {
+            "pl": {
+                "open": "Otwórz TRIKI Control",
+                "disable": "Wyłącz sterowanie",
+                "pair": "Połącz TRIKI",
+                "diagnostics": "Diagnostyka",
+                "quit": "Zakończ",
+                "hidden_title": "TRIKI Control nadal działa",
+                "hidden_message": (
+                    "Program nadal działa w tle. Aby zatrzymać sterowanie, kliknij ikonę "
+                    "TRIKI obok zegara i wybierz „Wyłącz sterowanie”. Aby zamknąć program, "
+                    "wróć do aplikacji i kliknij „Zakończ”."
+                ),
+            },
+            "en": {
+                "open": "Open TRIKI Control",
+                "disable": "Disable control",
+                "pair": "Pair TRIKI",
+                "diagnostics": "Diagnostics",
+                "quit": "Quit",
+                "hidden_title": "TRIKI Control is still running",
+                "hidden_message": (
+                    "The app is still running in the background. To stop control, click "
+                    "the TRIKI icon by the clock and choose 'Disable control'. To close "
+                    "the app, return to it and click 'Quit'."
+                ),
+            },
+        }
+        return strings[self.language][key]
 
     def attach_close_handler(self) -> None:
         if self._close_handler_attached:
@@ -886,10 +999,11 @@ class TrayController:
             return False
 
         menu = pystray_module.Menu(
-            pystray_module.MenuItem("Open TRIKI Control", self.open_window, default=True),
-            pystray_module.MenuItem("Pair TRIKI", self.request_pairing),
-            pystray_module.MenuItem("Diagnostics", self.open_diagnostics),
-            pystray_module.MenuItem("Quit", self.quit),
+            pystray_module.MenuItem(self._text("open"), self.open_window, default=True),
+            pystray_module.MenuItem(self._text("disable"), self.request_output_off),
+            pystray_module.MenuItem(self._text("pair"), self.request_pairing),
+            pystray_module.MenuItem(self._text("diagnostics"), self.open_diagnostics),
+            pystray_module.MenuItem(self._text("quit"), self.quit),
         )
         self.icon = pystray_module.Icon(
             "TRIKI Control",
@@ -909,7 +1023,14 @@ class TrayController:
         if self._allow_close:
             return True
         self.window.hide()
+        self.notify_hidden()
         return False
+
+    def notify_hidden(self) -> None:
+        if self.icon is None or not hasattr(self.icon, "notify"):
+            return
+        with contextlib.suppress(Exception):
+            self.icon.notify(self._text("hidden_message"), self._text("hidden_title"))
 
     def open_window(self, *args) -> None:
         if self.url is not None and hasattr(self.window, "load_url"):
@@ -927,8 +1048,22 @@ class TrayController:
         with contextlib.suppress(Exception):
             post_control_action(self.url, "pairing", opener=self.opener)
 
+    def request_output_off(self, *args) -> None:
+        if self.url is None:
+            return
+        with contextlib.suppress(Exception):
+            post_control_action(
+                self.url,
+                "output",
+                {"enabled": False},
+                opener=self.opener,
+            )
+
     def quit(self, *args) -> None:
+        if self._allow_close:
+            return
         self._allow_close = True
+        self.request_output_off()
         if self.icon is not None:
             with contextlib.suppress(Exception):
                 self.icon.stop()
@@ -1141,6 +1276,10 @@ def build_html() -> str:
     .header-actions { display: flex; align-items: center; gap: 10px; }
     .lang-pill { min-width: 44px; font-weight: 900; letter-spacing: 1px; }
     .lang-pill.active { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 14px var(--glow-cyan); background: rgba(31,240,255,0.08); }
+    .led-button.quit-button {
+      color: #fff; border-color: rgba(255,77,109,0.7); background: rgba(255,77,109,0.14);
+    }
+    .led-button.quit-button:hover { border-color: var(--red); color: #fff; box-shadow: 0 0 14px rgba(255,77,109,.35); }
     .battery-indicator {
       display: inline-flex; align-items: center; gap: 8px; color: var(--muted);
       font-size: 13px; font-weight: 700; white-space: nowrap; min-height: 24px;
@@ -1481,7 +1620,7 @@ def build_html() -> str:
     }
     .adv-backdrop.open { display: grid; place-items: center; }
     .adv-panel {
-      width: 100%; max-width: min(720px, 94vw); max-height: 88vh;
+      width: 100%; max-width: min(900px, 94vw); max-height: 88vh;
       display: flex; flex-direction: column; min-height: 0;
       border: 1px solid var(--line-strong); border-radius: 16px;
       background: var(--panel-solid);
@@ -1540,7 +1679,7 @@ def build_html() -> str:
     .action-row .gesture-name { display: grid; gap: 2px; }
     .action-row .gesture-name strong { font-size: 14px; }
     .action-row .gesture-name small { color: var(--muted); font-size: 11px; }
-    .mapping-controls { display: grid; grid-template-columns: 140px minmax(120px, 1fr) auto auto; gap: 8px; align-items: center; }
+    .mapping-controls { display: grid; grid-template-columns: 190px minmax(210px, 1fr) auto auto; gap: 8px; align-items: center; }
     .mapping-controls .macro-input { grid-column: 1 / -1; }
     .record-key.recording { border-color: var(--lime); color: var(--lime); }
     .danger { color: var(--red); border-color: rgba(255,77,109,0.5); }
@@ -1564,9 +1703,16 @@ def build_html() -> str:
     .about-body p { margin: 0; color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
     .about-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 
-    /* (The old max-width:960px reflow was removed: the UI now scales-to-fit a fixed
-       1020x820 design stage, so the desktop layout always applies and just shrinks --
-       a viewport media query would wrongly reflow INSIDE the fixed-width stage.) */
+    /* The main screen scales as one fixed stage. The Advanced overlay is the one
+       exception: its controls reflow so the modal remains usable in a narrow window. */
+    @media (max-width: 760px) {
+      .adv-backdrop { padding: 12px; }
+      .adv-panel { max-width: calc(100vw - 24px); }
+      .adv-body, .adv-section { padding: 10px; }
+      .action-row { grid-template-columns: 1fr; }
+      .mapping-controls { grid-template-columns: 1fr; }
+      .mapping-controls > * { width: 100%; min-width: 0; }
+    }
   </style>
 </head>
 <body>
@@ -1672,18 +1818,21 @@ def build_html() -> str:
              Connect -> Pick game -> Output ON. -->
         <div class="toggles toggles-single">
           <section class="power-card">
-            <div class="cap-title" data-i18n="power.step">Step 3 &mdash; Output</div>
+            <div class="cap-title" data-i18n="power.step">Step 3 &mdash; Control</div>
             <button class="power-btn" id="power-btn" type="button" aria-pressed="false" disabled>
-              <span class="dot"></span><span id="power-label">OFF</span>
+              <span class="dot"></span><span id="power-label">CONTROL OFF</span>
             </button>
           </section>
         </div>
 
-        <!-- LED + Advanced -->
+        <!-- LED + Advanced + explicit app exit -->
         <div class="util-bar">
           <button class="led-button" id="led-test" type="button" title="Hold to light the TRIKI LED" disabled data-i18n="led.test">Test light</button>
           <span class="util-spacer"></span>
           <button class="adv-open-btn" id="advanced-open" type="button" data-i18n="advanced.open">Advanced</button>
+          <button class="quit-button led-button" id="quit-button" type="button" title="Quit">
+            <span aria-hidden="true">&#x23FB;</span><span data-i18n="header.quit">Quit</span>
+          </button>
         </div>
       </aside>
     </div>
@@ -1737,6 +1886,11 @@ def build_html() -> str:
               <label for="turn-sensitivity" data-i18n="turn.sensitivity">Turn sensitivity</label>
               <input type="range" id="turn-sensitivity" min="0" max="100" step="1" value="50" style="flex:1 1 160px;"> <code id="turn-sensitivity-val">50</code>
               <span class="tilt-hint" data-i18n="turn.sensitivityHint">Saved per profile. Higher = gentler twist pickup.</span>
+            </div>
+            <div class="tilt-controls">
+              <label for="mouse-speed" data-i18n="mouse.speed">Mouse speed</label>
+              <input type="range" id="mouse-speed" min="1" max="50" step="1" value="12" style="flex:1 1 160px;"> <code id="mouse-speed-val">12</code>
+              <span class="tilt-hint" data-i18n="mouse.speedHint">Saved per profile. Controls movement distance for mapped mouse directions.</span>
             </div>
             <div class="motion-live" id="motion-live">
               <span data-i18n="tilt.live.fwd">Forward/back</span> <code id="motion-he">0</code>
@@ -1820,13 +1974,16 @@ def build_html() -> str:
     const I18N = {
       pl: {
         'step.connect': 'Połącz', 'step.pickGame': 'Wybierz grę', 'step.turnOn': 'Włącz', 'step.play': 'Graj!',
-        'header.about': 'O programie',
-        'battery.unknown': 'Bateria --',
+        'header.about': 'O programie', 'header.quit': 'Zakończ',
+        'quit.confirm': 'Zakończyć TRIKI Control i całkowicie wyłączyć sterowanie?',
+        'battery.unknown': 'Bateria --', 'battery.level': 'Bateria', 'battery.titleUnknown': 'Poziom baterii jest nieznany.',
         'hero.title': 'Twój kapsel na żywo', 'hero.neutralHint': 'Kręć, przechylaj lub stempluj kapsel!',
         'hero.power': 'MOC',
         'connect.step': 'Krok 1 \\u2014 Połącz', 'connect.pair': 'Połącz TRIKI', 'connect.connected': 'Połączono',
         'games.step': 'Krok 2 \\u2014 Wybierz grę',
-        'power.step': 'Krok 3 \\u2014 Wyjście',
+        'power.step': 'Krok 3 \\u2014 Sterowanie',
+        'power.turnOn': 'WŁĄCZ STEROWANIE', 'power.turnOff': 'WYŁĄCZ STEROWANIE',
+        'power.offline': 'STEROWANIE WYŁĄCZONE',
         'led.test': 'Test światła',
         'advanced.open': 'Zaawansowane', 'advanced.title': 'Ustawienia zaawansowane',
         'adv.profiles': 'Profile', 'adv.profile': 'Profil', 'adv.newProfile': 'Nowy profil',
@@ -1838,18 +1995,24 @@ def build_html() -> str:
         'tilt.help': 'Obróć kapsel płasko w miejscu, aby skręcić; przechyl go i przytrzymaj, aby iść do przodu. Suwaki poniżej dotyczą obrotu, a nie progu przechyłu. Neutral to po prostu jak kapsel leży po połączeniu \\u2014 bez kalibracji.',
         'turn.threshold': 'Próg obrotu', 'turn.thresholdHint': 'Zapisywane osobno dla profilu. Niżej = obrót łapie szybciej.',
         'turn.sensitivity': 'Czułość obrotu', 'turn.sensitivityHint': 'Zapisywane osobno dla profilu. Wyżej = bardziej wybacza wolny lub niedoskonały obrót.',
+        'mouse.speed': 'Szybkość myszy', 'mouse.speedHint': 'Zapisywane osobno dla profilu. Określa odległość ruchu dla przypisanych kierunków myszy.',
+        'action.target': 'Klawisz / media / mysz', 'action.macro': 'Makro', 'action.disabled': 'Wyłączone',
+        'action.record': 'Nagraj klawisz', 'action.pressKey': 'Naciśnij klawisz', 'action.save': 'Zapisz',
         'tilt.live.fwd': 'Przód/tył', 'tilt.live.side': 'Bok', 'tilt.live.lean': 'Przechył', 'tilt.live.dir': 'Kierunek',
         'about.tagline': 'Kręć kapslem. Graj. Baw się dobrze!', 'about.close': 'Zamknij'
       },
       en: {
         'step.connect': 'Connect', 'step.pickGame': 'Pick game', 'step.turnOn': 'Turn ON', 'step.play': 'Play!',
-        'header.about': 'About',
-        'battery.unknown': 'Battery --',
+        'header.about': 'About', 'header.quit': 'Quit',
+        'quit.confirm': 'Quit TRIKI Control and completely disable control?',
+        'battery.unknown': 'Battery --', 'battery.level': 'Battery', 'battery.titleUnknown': 'Battery level is unknown.',
         'hero.title': 'Your cap, live', 'hero.neutralHint': 'Spin, tilt or stamp your cap!',
         'hero.power': 'POWER',
         'connect.step': 'Step 1 \\u2014 Connect', 'connect.pair': 'Pair TRIKI', 'connect.connected': 'Connected',
         'games.step': 'Step 2 \\u2014 Pick your game',
-        'power.step': 'Step 3 \\u2014 Output',
+        'power.step': 'Step 3 \\u2014 Control',
+        'power.turnOn': 'TURN CONTROL ON', 'power.turnOff': 'TURN CONTROL OFF',
+        'power.offline': 'CONTROL OFF',
         'led.test': 'Test light',
         'advanced.open': 'Advanced', 'advanced.title': 'Advanced settings',
         'adv.profiles': 'Profiles', 'adv.profile': 'Profile', 'adv.newProfile': 'New profile',
@@ -1861,8 +2024,37 @@ def build_html() -> str:
         'tilt.help': "Twist the cap in place to turn; lean it and hold to walk. The sliders below tune turn/twist, not the lean threshold. Neutral is wherever the cap lies when you connect \\u2014 no calibration.",
         'turn.threshold': 'Turn threshold', 'turn.thresholdHint': 'Saved per profile. Lower = twist engages sooner.',
         'turn.sensitivity': 'Turn sensitivity', 'turn.sensitivityHint': 'Saved per profile. Higher = more forgiving slow or imperfect twists.',
+        'mouse.speed': 'Mouse speed', 'mouse.speedHint': 'Saved per profile. Controls movement distance for mapped mouse directions.',
+        'action.target': 'Key / Media / Mouse', 'action.macro': 'Macro', 'action.disabled': 'Disabled',
+        'action.record': 'Record key', 'action.pressKey': 'Press a key', 'action.save': 'Save',
         'tilt.live.fwd': 'Forward/back', 'tilt.live.side': 'Side', 'tilt.live.lean': 'Lean', 'tilt.live.dir': 'Direction',
         'about.tagline': 'Spin the cap. Play the game. Have fun!', 'about.close': 'Close'
+      }
+    };
+    const STATUS_TEXT = {
+      pl: {
+        idle: ['Kliknij „Połącz TRIKI”, aby zacząć.', 'Nie naciskaj jeszcze przycisku na kapslu.'],
+        waiting: ['Kliknij „Połącz TRIKI”, aby zacząć.', 'Nie naciskaj jeszcze przycisku na kapslu.'],
+        pairing: ['Szukanie TRIKI. Naciśnij teraz fizyczny przycisk raz.', 'Naciśnij raz i puść, potem trzymaj TRIKI blisko komputera.'],
+        connecting: ['Łączenie z TRIKI...', 'Nie naciskaj przycisku podczas łączenia.'],
+        connected: ['Połączono. Uruchamiam sterowanie...', 'Nie naciskaj przycisku parowania podczas połączenia.'],
+        ready: ['TRIKI jest połączone i gotowe.', 'Wybierz profil, potem włącz sterowanie.'],
+        retrying: ['Połączenie nie jest gotowe. Próbuję ponownie...', 'Trzymaj TRIKI blisko komputera i poczekaj.'],
+        reconnecting: ['Połączenie zostało przerwane. Próbuję ponownie...', 'Trzymaj TRIKI blisko komputera i poczekaj.'],
+        disconnected: ['TRIKI zostało rozłączone. Sterowanie jest wyłączone.', 'Kliknij „Połącz TRIKI”, aby połączyć ponownie.'],
+        error: ['Nie udało się połączyć z TRIKI.', 'Kliknij „Połącz TRIKI”, aby spróbować ponownie.']
+      },
+      en: {
+        idle: ['Click Pair TRIKI to begin.', 'Do not press the cap button yet.'],
+        waiting: ['Click Pair TRIKI to begin.', 'Do not press the cap button yet.'],
+        pairing: ['Looking for TRIKI. Press its physical button once now.', 'Press once and release, then keep TRIKI close to the computer.'],
+        connecting: ['Connecting to TRIKI...', 'Do not press the button while connecting.'],
+        connected: ['Connected. Starting control...', 'Do not press the pairing button while connected.'],
+        ready: ['TRIKI is connected and ready.', 'Choose a profile, then turn control on.'],
+        retrying: ['The connection is not ready. Trying again...', 'Keep TRIKI close to the computer and wait.'],
+        reconnecting: ['The connection was interrupted. Trying again...', 'Keep TRIKI close to the computer and wait.'],
+        disconnected: ['TRIKI disconnected. Control is off.', 'Click Pair TRIKI to connect again.'],
+        error: ['Could not connect to TRIKI.', 'Click Pair TRIKI to try again.']
       }
     };
     function T(key, vars) {
@@ -1885,6 +2077,8 @@ def build_html() -> str:
         pill.textContent = (lang === 'pl') ? 'PL' : 'EN';
         pill.classList.toggle('active', true);
       }
+      const quitButton = document.getElementById('quit-button');
+      if (quitButton) quitButton.title = T('header.quit');
       // Re-render the language-dependent dynamic bits (tiles, tilt block, the
       // localized Advanced action-row names).
       if (state) {
@@ -1893,6 +2087,9 @@ def build_html() -> str:
         renderTilt();
         renderProfiles();
         renderActions();
+        renderPower(state.status === 'connected' || state.status === 'ready');
+        renderStatus();
+        renderBattery(state.battery);
       }
     }
 
@@ -1926,6 +2123,26 @@ def build_html() -> str:
       ['media-next', 'Media Next'],
       ['media-prev', 'Media Previous']
     ];
+    const mouseChoices = {
+      pl: [
+        ['mouse-left-button', 'Lewy przycisk myszy'],
+        ['mouse-right-button', 'Prawy przycisk myszy'],
+        ['mouse-middle-button', 'Środkowy przycisk myszy'],
+        ['mouse-move-left', 'Ruch myszy w lewo'],
+        ['mouse-move-right', 'Ruch myszy w prawo'],
+        ['mouse-move-up', 'Ruch myszy w górę'],
+        ['mouse-move-down', 'Ruch myszy w dół']
+      ],
+      en: [
+        ['mouse-left-button', 'Left mouse button'],
+        ['mouse-right-button', 'Right mouse button'],
+        ['mouse-middle-button', 'Middle mouse button'],
+        ['mouse-move-left', 'Move mouse left'],
+        ['mouse-move-right', 'Move mouse right'],
+        ['mouse-move-up', 'Move mouse up'],
+        ['mouse-move-down', 'Move mouse down']
+      ]
+    };
 
     // Kid-friendly names + emoji per real profile, localized PL/EN. Keys are the
     // EXACT server profile names (control('profile',{operation:'switch',name})).
@@ -2017,8 +2234,7 @@ def build_html() -> str:
       const nextLang = (state && state.lang) === 'en' ? 'en' : 'pl';
       if (nextLang !== lang) setLang(nextLang);
       document.getElementById('app-title').textContent = 'TRIKI Control';
-      document.getElementById('message').textContent = state.message;
-      document.getElementById('hint').textContent = state.button_hint || '';
+      renderStatus();
       renderBattery(state.battery);
       const pairButton = document.querySelector('.pair-button');
       const ledButton = document.getElementById('led-test');
@@ -2036,6 +2252,14 @@ def build_html() -> str:
       if (nextProfileSignature !== renderedProfileSignature) renderProfiles();
       if (state.action_revision !== renderedActionRevision) renderActions();
       refreshSteps(isConnected);
+    }
+
+    function renderStatus() {
+      if (!state) return;
+      const table = STATUS_TEXT[lang] || STATUS_TEXT.pl;
+      const copy = table[state.status];
+      document.getElementById('message').textContent = copy ? copy[0] : state.message;
+      document.getElementById('hint').textContent = copy ? copy[1] : (state.button_hint || '');
     }
 
     function renderTilt() {
@@ -2067,6 +2291,12 @@ def build_html() -> str:
         ts.value = m.turn_sensitivity;
         if (tsv) tsv.textContent = m.turn_sensitivity;
       }
+      const mouseSpeed = document.getElementById('mouse-speed');
+      const mouseSpeedValue = document.getElementById('mouse-speed-val');
+      if (mouseSpeed && document.activeElement !== mouseSpeed && Number.isFinite(m.mouse_speed)) {
+        mouseSpeed.value = m.mouse_speed;
+        if (mouseSpeedValue) mouseSpeedValue.textContent = m.mouse_speed;
+      }
     }
 
     function renderPower(isConnected) {
@@ -2074,8 +2304,11 @@ def build_html() -> str:
       const btn = document.getElementById('power-btn');
       btn.classList.toggle('on', on);
       btn.setAttribute('aria-pressed', String(on));
-      btn.disabled = !isConnected;
-      document.getElementById('power-label').textContent = on ? 'ON' : 'OFF';
+      btn.disabled = !isConnected && !on;
+      const label = on ? T('power.turnOff') : isConnected ? T('power.turnOn') : T('power.offline');
+      btn.setAttribute('aria-label', label);
+      btn.title = label;
+      document.getElementById('power-label').textContent = label;
     }
 
     function refreshSteps(isConnected) {
@@ -2099,12 +2332,12 @@ def build_html() -> str:
       const rawPercent = battery && Number.isFinite(battery.percent) ? battery.percent : null;
       const percent = rawPercent === null ? null : Math.max(0, Math.min(100, rawPercent));
       const status = battery && battery.status ? battery.status : percent === null ? 'unknown' : 'ok';
-      const text = battery && battery.label ? battery.label : percent === null ? 'Battery --' : `${percent}%`;
+      const text = percent === null ? T('battery.unknown') : `${percent}%`;
       root.className = `battery-indicator ${status}`;
       fill.style.width = percent === null ? '18%' : `${percent}%`;
       label.textContent = text;
-      root.title = battery && battery.message ? battery.message : 'Battery level unknown.';
-      root.setAttribute('aria-label', `Battery ${text}`);
+      root.title = percent === null ? T('battery.titleUnknown') : `${T('battery.level')}: ${percent}%`;
+      root.setAttribute('aria-label', percent === null ? text : `${T('battery.level')} ${text}`);
     }
 
     function profileNames() {
@@ -2154,7 +2387,7 @@ def build_html() -> str:
     }
 
     function allKeyChoices() {
-      const choices = [...keyChoices];
+      const choices = [...keyChoices, ...(mouseChoices[lang] || mouseChoices.pl)];
       for (let code = 65; code <= 90; code += 1) {
         const key = String.fromCharCode(code).toLowerCase();
         if (!choices.some(choice => choice[0] === key)) choices.push([key, String.fromCharCode(code)]);
@@ -2179,13 +2412,13 @@ def build_html() -> str:
           <div class="gesture-name"><strong>${escapeHtml(controlLabel(item))}</strong><small>${escapeHtml(item.gesture_label)}</small></div>
           <div class="mapping-controls">
             <select class="action-type">
-              <option value="key">Key / Media</option>
-              <option value="macro">Macro</option>
-              <option value="disabled">Disabled</option>
+              <option value="key">${escapeHtml(T('action.target'))}</option>
+              <option value="macro">${escapeHtml(T('action.macro'))}</option>
+              <option value="disabled">${escapeHtml(T('action.disabled'))}</option>
             </select>
             <select class="key-select"></select>
-            <button class="record-key" type="button">Record Key</button>
-            <button class="apply-action" type="button">Save</button>
+            <button class="record-key" type="button">${escapeHtml(T('action.record'))}</button>
+            <button class="apply-action" type="button">${escapeHtml(T('action.save'))}</button>
             <input class="macro-input" placeholder="left, 100ms, enter">
           </div>`;
         const typeSelect = row.querySelector('.action-type');
@@ -2195,7 +2428,7 @@ def build_html() -> str:
         for (const choice of allKeyChoices()) {
           const option = document.createElement('option');
           option.value = choice[0];
-          option.textContent = choice[1];
+          option.textContent = choice[0] ? choice[1] : T('action.disabled');
           keySelect.appendChild(option);
         }
         const binding = item.binding || { type: 'disabled' };
@@ -2235,7 +2468,7 @@ def build_html() -> str:
     function startKeyRecording(button, select) {
       if (activeRecorder) activeRecorder.button.classList.remove('recording');
       button.classList.add('recording');
-      button.textContent = 'Press Key';
+      button.textContent = T('action.pressKey');
       activeRecorder = { button, select };
       const finish = (event) => {
         event.preventDefault();
@@ -2244,7 +2477,7 @@ def build_html() -> str:
         ensureSelectOption(select, keyName, keyName.toUpperCase());
         select.value = keyName;
         button.classList.remove('recording');
-        button.textContent = 'Record Key';
+        button.textContent = T('action.record');
         activeRecorder = null;
         document.removeEventListener('keydown', finish, true);
       };
@@ -2385,6 +2618,19 @@ def build_html() -> str:
         control('turn-sensitivity', { value: parseFloat(turnSensInput.value) });
       });
     }
+    const mouseSpeedInput = document.getElementById('mouse-speed');
+    if (mouseSpeedInput) {
+      const mouseSpeedValue = document.getElementById('mouse-speed-val');
+      mouseSpeedInput.addEventListener('input', () => {
+        if (mouseSpeedValue) mouseSpeedValue.textContent = mouseSpeedInput.value;
+      });
+      mouseSpeedInput.addEventListener('change', () => {
+        control('mouse-speed', { value: parseInt(mouseSpeedInput.value, 10) });
+      });
+    }
+    document.getElementById('quit-button').addEventListener('click', () => {
+      if (window.confirm(T('quit.confirm'))) control('quit');
+    });
     document.getElementById('about-button').addEventListener('click', async () => {
       const dialog = document.getElementById('about-dialog');
       try {
@@ -2779,6 +3025,9 @@ def run_webview_window(
     webview_module=None,
     enable_tray: bool = True,
     on_show_window=None,
+    on_quit_app=None,
+    on_quit=None,
+    language: str = "en",
 ) -> None:
     if webview_module is None:
         import webview as webview_module
@@ -2792,9 +3041,16 @@ def run_webview_window(
         min_size=(360, 480),   # window can shrink onto a small monitor or stretch.
     )
     if window is not None:
-        controller = TrayController(window, url=url)
+        controller = TrayController(
+            window,
+            url=url,
+            on_quit=on_quit,
+            language=language,
+        )
         if on_show_window is not None:
             on_show_window(controller.open_window)
+        if on_quit_app is not None:
+            on_quit_app(controller.quit)
         if enable_tray:
             controller.start()
     webview_module.start()
@@ -3011,8 +3267,8 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
     if not is_loopback_host(args.host):
         warning = (
             f"WARNING: --host {args.host} is not loopback. The /control endpoint "
-            "injects keystrokes and has no authentication or origin checks, so any "
-            "device that can reach this address can send key presses to this PC. "
+            "injects keyboard and mouse input and has no authentication, so non-browser "
+            "clients that can reach this address can control this PC. "
             "Use 127.0.0.1 unless you fully trust your network."
         )
         write_console_line(warning, stream=sys.stderr)
@@ -3022,8 +3278,9 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
         write_log_line(args.log_path, f"EXISTING_INSTANCE_ACTIVATED url={url}")
         return 0
     config = load_config(args.config_path)
-    if args.output_enabled:
-        config.output_enabled = True
+    # Output is deliberately session-scoped. A previous crash, logout or forced
+    # shutdown must never make the next launch start injecting input by itself.
+    config.output_enabled = bool(args.output_enabled)
     if args.hold_ms is not None:
         config.hold_ms = normalize_hold_ms(args.hold_ms)
     elif config.engine == ENGINE_MOTION and config.hold_ms <= 0:
@@ -3096,6 +3353,15 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
             },
         })
     server = AppHttpServer((args.host, args.port), session, bus, connection_control, command_bridge)
+
+    def stop_background_work() -> None:
+        connection_control.request_shutdown()
+        session.set_output_enabled(False)
+
+    def shutdown_app_server() -> None:
+        stop_background_work()
+        server.shutdown()
+
     write_log_line(args.log_path, f"SERVER_READY url={url}")
     thread = threading.Thread(
         target=lambda: asyncio.run(
@@ -3130,13 +3396,18 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
                 url,
                 enable_tray=not args.no_tray,
                 on_show_window=lambda show_window: setattr(server, "show_window", show_window),
+                on_quit_app=lambda quit_app: setattr(server, "quit_app", quit_app),
+                on_quit=stop_background_work,
+                language=config.lang,
             )
         except Exception as exc:
             write_log_line(args.log_path, f"WEBVIEW_ERROR {type(exc).__name__}: {exc}")
             raise
         finally:
+            stop_background_work()
             server.shutdown()
             server.server_close()
+            thread.join(timeout=1.0)
             with contextlib.suppress(Exception):
                 hold_emitter.close()
             if session_logger is not None:
@@ -3149,6 +3420,7 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
         server.show_window = lambda: schedule_browser_open(url, 0.0)
         schedule_browser_open(url, args.open_delay_seconds)
         write_log_line(args.log_path, f"BROWSER_OPEN_SCHEDULED delay={args.open_delay_seconds}")
+    server.quit_app = shutdown_app_server
     write_console_line(f"OPEN {url}")
     write_log_line(args.log_path, f"SERVE_FOREVER url={url}")
     try:
@@ -3156,7 +3428,9 @@ def main(argv: Sequence[str] | None = None, *, default_ui: str = "browser") -> i
     except KeyboardInterrupt:
         return 130
     finally:
+        stop_background_work()
         server.server_close()
+        thread.join(timeout=1.0)
         with contextlib.suppress(Exception):
             hold_emitter.close()
         if session_logger is not None:

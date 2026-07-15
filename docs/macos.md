@@ -7,10 +7,10 @@ TRIKI Control can run on macOS from source or from the packaged `.app` build.
 1. Open `TRIKI Control.app`.
 2. Allow Bluetooth access when macOS asks.
 3. Click `Pair TRIKI`, then press the physical TRIKI pairing button once.
-4. Grant Accessibility permission in System Settings before enabling keyboard output.
+4. Grant Accessibility permission in System Settings before enabling keyboard or mouse output.
 
 The app needs Bluetooth for the cap connection and Accessibility for sending the
-mapped key presses to games or other apps.
+mapped keyboard and mouse actions to games or other apps.
 
 ## From source
 

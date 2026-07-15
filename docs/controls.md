@@ -29,8 +29,9 @@ In **Advanced**, for any profile:
 
 - **Turn threshold:** how strong the twist has to be before it counts as a turn. Lower is touchier.
 - **Turn sensitivity:** how forgiving the turn detector is for slower or less-perfect twists. These turn tuning values are saved per profile, so Game can stay steady while Music can be much more sensitive for volume control.
+- **Mouse speed:** how far the pointer moves for every detected sample when a movement direction is mapped. It is saved per profile, so a game can stay precise while another profile moves quickly.
 
-Every row in **Action Mapping** can be rebound to any key, media key, or short macro. The Game control labels are `turn-left` and `turn-right` (turn), `go` (walk), `stamp` (fire), `flip` (run), and `scrub-straight` (use/door).
+Every row in **Action Mapping** can be rebound to any key, media key, left/right/middle mouse button, mouse movement direction, or short macro. The Game control labels are `turn-left` and `turn-right` (turn), `go` (walk), `stamp` (fire), `flip` (run), and `scrub-straight` (use/door).
 
 For the **Music** profile, those same rows default to media controls: `turn-left` lowers volume, `turn-right` raises volume, `go` goes to the previous track, `stamp` toggles play/pause, `flip` mutes, and `scrub-straight` skips to the next track. Volume up/down repeat while the twist is held, so a held twist acts more like a knob than a single click.
 
@@ -38,8 +39,10 @@ For the **Music** profile, those same rows default to media controls: `turn-left
 
 You will notice the Game profile has no strafe and no separate forward/back/left/right movement, just turn and go. That is not a missing feature; it is the hard limit of the hardware. A round cap with a gyro and accelerometer but **no magnetometer** cannot know which way it is pointing, so directional movement (push-left-go-left) is physically impossible to do reliably. It is the same reason the cap's official games each use a single axis of motion: ask this device to track two things at once and the signals smear into noise. The tank scheme is what is achievable, and it is enough to finish a game. The full explanation is in [how-it-works.md](how-it-works.md).
 
-## Output, safety, and the panic switch
+## Control, safety, and the panic switch
 
-- The big **Output ON / OFF** toggle is the master switch. Keys only reach your system when it is ON. Flip it OFF before you set the cap down, or it will keep "playing".
-- Closing the app releases any held keys. If something ever feels stuck, toggling Output OFF (or quitting) clears it.
-- Bindings and the active profile are saved to a single JSON config file, so your setup survives restarts.
+- The big **TURN CONTROL ON / OFF** button is the master switch. Keyboard and mouse input only reaches your system while control is ON. Turn it OFF before setting the cap down.
+- Clicking **X** hides the window but leaves the app running by the clock. A notification explains this. Choose **Disable control** from the tray to stop input immediately.
+- The red **Quit** button in the app closes TRIKI Control completely. The tray also has a separate **Quit** command.
+- Losing the Bluetooth connection turns control OFF and releases held keys or mouse buttons. Every fresh launch also starts with control OFF.
+- Bindings and the active profile are saved to one JSON config file. On Windows it is `%APPDATA%\TRIKI\config.json`.

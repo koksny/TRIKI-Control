@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,11 +17,13 @@ from triki_gestures import (
     normalize_gesture_label,
 )
 from triki_key_emitter import (
+    DEFAULT_MOUSE_SPEED,
     MAX_HOLD_MS,
     KeyEmissionError,
     create_default_key_emitter,
     normalize_key_name,
-    vk_for_key,
+    normalize_mouse_speed,
+    validate_output_name,
 )
 
 
@@ -46,7 +50,9 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # 14->15: Music keeps the shared Motion rows, but restores media-key defaults.
 # 15->16: Motion tuning gets the first per-profile settings pass.
 # 16->17: profile threshold tuning moves to the turn/twist threshold.
-CONFIG_VERSION = 17
+# 17->18: profiles gain a cross-platform mouse movement speed while preserving
+# every compatible Game/Music action override.
+CONFIG_VERSION = 18
 # Action-map compatibility is narrower than the whole config schema. Later schema
 # bumps for Motion tuning must not erase user key overrides from already-compatible
 # Game/Doom configs.
@@ -234,6 +240,7 @@ def can_preserve_builtin_action_overrides(profile_name: str, version: int) -> bo
 class MotionProfileSettings:
     turn_threshold: float = DEFAULT_GAME_TURN_THRESHOLD
     turn_sensitivity: float = DEFAULT_GAME_TURN_SENSITIVITY
+    mouse_speed: int = DEFAULT_MOUSE_SPEED
 
     @classmethod
     def from_dict(
@@ -247,6 +254,7 @@ class MotionProfileSettings:
             return cls(
                 turn_threshold=normalize_turn_threshold(data.turn_threshold, fallback.turn_threshold),
                 turn_sensitivity=normalize_turn_sensitivity(data.turn_sensitivity, fallback.turn_sensitivity),
+                mouse_speed=normalize_mouse_speed(data.mouse_speed, fallback.mouse_speed),
             )
         if not isinstance(data, dict):
             return fallback
@@ -259,12 +267,17 @@ class MotionProfileSettings:
                 data.get("turn_sensitivity", fallback.turn_sensitivity),
                 fallback.turn_sensitivity,
             ),
+            mouse_speed=normalize_mouse_speed(
+                data.get("mouse_speed", fallback.mouse_speed),
+                fallback.mouse_speed,
+            ),
         )
 
     def to_dict(self) -> dict[str, float]:
         return {
             "turn_threshold": normalize_turn_threshold(self.turn_threshold),
             "turn_sensitivity": normalize_turn_sensitivity(self.turn_sensitivity),
+            "mouse_speed": normalize_mouse_speed(self.mouse_speed),
         }
 
 
@@ -555,10 +568,12 @@ def default_motion_settings_for_profile(profile_name: str) -> MotionProfileSetti
         return MotionProfileSettings(
             turn_threshold=DEFAULT_MUSIC_TURN_THRESHOLD,
             turn_sensitivity=DEFAULT_MUSIC_TURN_SENSITIVITY,
+            mouse_speed=DEFAULT_MOUSE_SPEED,
         )
     return MotionProfileSettings(
         turn_threshold=DEFAULT_GAME_TURN_THRESHOLD,
         turn_sensitivity=DEFAULT_GAME_TURN_SENSITIVITY,
+        mouse_speed=DEFAULT_MOUSE_SPEED,
     )
 
 
@@ -599,8 +614,7 @@ def parse_macro_text(text: str) -> ActionBinding:
 
 def normalize_action_key(key_name: str) -> str:
     normalized = normalize_key_name(key_name)
-    vk_for_key(normalized)
-    return normalized
+    return validate_output_name(normalized)
 
 
 def normalize_profile_name(name: str) -> str:
@@ -718,9 +732,20 @@ def load_config(path: Path) -> TrikiConfig:
 
 def save_config(path: Path, config: TrikiConfig) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as file:
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as file:
         json.dump(config.to_dict(), file, indent=2, sort_keys=True)
         file.write("\n")
+        file.flush()
+        os.fsync(file.fileno())
+        temporary_path = Path(file.name)
+    os.replace(temporary_path, path)
 
 
 # Sanity (checked once at import, after every binding helper is defined): each

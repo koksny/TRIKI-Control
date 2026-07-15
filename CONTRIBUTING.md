@@ -20,14 +20,12 @@ python -m pip install pytest
 python -m pytest tests/
 ```
 
-(Part of the suite still targets the pre-1.0 directional scheme and fails by design until rewritten. See the note in [docs/build.md](docs/build.md).)
-
 ## Where help is most useful
 
 - **BLE robustness:** fewer dropouts, faster reconnects, better behavior across adapters.
 - **The motion engine** (`src/triki_motion_engine.py`): cleaner separation of the five controls, less ghosting, on a wider range of hands and surfaces. If you change tuning, validate against recorded sessions, not just by feel.
-- **Platform output:** coverage and reliability of keystroke injection on Windows, macOS, and Linux.
-- **Tests:** rewriting the stale cases against the current engine.
+- **Platform output:** coverage and reliability of keyboard and mouse injection on Windows, macOS, and Linux.
+- **Tests:** recorded-motion regressions, platform output fakes, and packaged-build smoke coverage.
 
 ## Ground rules
 
