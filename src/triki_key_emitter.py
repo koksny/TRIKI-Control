@@ -1046,6 +1046,7 @@ class HoldKeyEmitter:
         self._max_hold_ms = max(0, int(max_hold_ms))
         self._volume_tap_repeat_seconds = max(0.0, int(volume_tap_repeat_ms) / 1000.0)
         self._mouse_speed = normalize_mouse_speed(mouse_speed)
+        self._mouse_axis_remainders: dict[str, float] = {}
         self._monotonic = monotonic
         self._hold_seconds = self._clamp_seconds(hold_ms)
         self._cond = threading.Condition()
@@ -1084,6 +1085,43 @@ class HoldKeyEmitter:
     def set_mouse_speed(self, mouse_speed: int) -> None:
         with self._cond:
             self._mouse_speed = normalize_mouse_speed(mouse_speed)
+            self._mouse_axis_remainders.clear()
+
+    def press_key_scaled(self, key_name: str, mouse_strength: float) -> None:
+        """Emit an analog pointer step, or preserve normal key semantics.
+
+        ``mouse_strength`` is clamped to 0..1 and scales the active profile's
+        maximum mouse speed. Fractional pixels are carried between samples so a
+        slow twist remains smooth instead of being rounded up to the same fixed
+        step as a fast twist.
+        """
+        key = normalize_key_name(key_name)
+        if key not in MOUSE_MOVE_DIRECTIONS:
+            self.press_key(key)
+            return
+        try:
+            strength = max(0.0, min(1.0, float(mouse_strength)))
+        except (TypeError, ValueError):
+            strength = 0.0
+        with self._cond:
+            if strength <= 0.0:
+                self._mouse_axis_remainders.clear()
+                self._notify("axis-idle", key, strength=0.0)
+                return
+            for other_direction in MOUSE_MOVE_DIRECTIONS:
+                if other_direction != key:
+                    self._mouse_axis_remainders.pop(other_direction, None)
+            distance = self._mouse_axis_remainders.get(key, 0.0) + self._mouse_speed * strength
+            pixels = int(distance)
+            self._mouse_axis_remainders[key] = distance - pixels
+            if pixels <= 0:
+                self._notify("axis-wait", key, strength=round(strength, 4))
+                return
+            unit_x, unit_y = MOUSE_MOVE_DIRECTIONS[key]
+            dx = unit_x * pixels
+            dy = unit_y * pixels
+            self._base.move_pointer(dx, dy)
+            self._notify("move-axis", key, dx=dx, dy=dy, strength=round(strength, 4))
 
     def press_key(self, key_name: str) -> None:
         key = normalize_key_name(key_name)
@@ -1160,6 +1198,7 @@ class HoldKeyEmitter:
 
     def release_all(self) -> None:
         with self._cond:
+            self._mouse_axis_remainders.clear()
             if self._deadlines:
                 self._release_all_locked()
                 self._cond.notify_all()
@@ -1172,6 +1211,7 @@ class HoldKeyEmitter:
             # physically held. Do not move the release into _run() without making the
             # worker non-daemon and joining it.
             self._stop = True
+            self._mouse_axis_remainders.clear()
             self._release_all_locked()
             self._cond.notify_all()
             worker = self._worker

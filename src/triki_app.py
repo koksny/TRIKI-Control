@@ -29,6 +29,7 @@ from triki_actions import (
     normalize_gesture_label,
     normalize_hold_ms,
     normalize_lang,
+    normalize_mouse_axis_enabled,
     normalize_mouse_speed,
     normalize_profile_name,
     normalize_tilt_threshold,
@@ -47,7 +48,7 @@ from triki_key_emitter import (
     create_default_key_emitter,
 )
 from triki_live import LiveGestureDetector
-from triki_motion_engine import MotionControlEngine
+from triki_motion_engine import MotionControlEngine, TURN_LEFT_LABEL, TURN_RIGHT_LABEL
 from triki_play import BleCommandBridge, play_button_hint, run_ble_stream
 from triki_diagnostics import collect_diagnostics
 from triki_metadata import APP_CREATOR, APP_LICENSE, APP_NAME, APP_VERSION, APP_WEBSITE
@@ -75,6 +76,28 @@ OUTPUT_ACTIVE_STATUSES = frozenset({"connected", "ready"})
 # over-travel when you stop (well under the 400 ms that felt laggy).
 DEFAULT_MOTION_HOLD_MS = 120
 APP_ICON_TRAY_ASSET = Path("assets") / "triki-control-icon-tray.png"
+MOUSE_AXIS_RELEASE_RATIO = 0.69
+MOUSE_AXIS_FULL_SPEED_MULTIPLIER = 3.0
+MOUSE_AXIS_GESTURES = frozenset({TURN_LEFT_LABEL, TURN_RIGHT_LABEL})
+
+
+def mouse_axis_strength(prediction, turn_threshold: float) -> float:
+    """Map current twist speed to a 0..1 pointer-axis strength.
+
+    The lower bound mirrors MotionControlEngine's turn release hysteresis, so
+    the gesture lock's brief idle bridge cannot drift the pointer after the cap
+    stops. Three times the engage threshold is treated as full speed.
+    """
+    try:
+        twist = abs(float(prediction.features.c_mean))
+        threshold = max(1.0, float(turn_threshold))
+    except (AttributeError, TypeError, ValueError):
+        return 0.0
+    release = threshold * MOUSE_AXIS_RELEASE_RATIO
+    if twist <= release:
+        return 0.0
+    full_speed = threshold * MOUSE_AXIS_FULL_SPEED_MULTIPLIER
+    return max(0.0, min(1.0, (twist - release) / (full_speed - release)))
 
 
 def apply_motion_profile_settings(engine, settings) -> None:
@@ -157,6 +180,7 @@ class AppSession:
         turn_threshold=None,
         turn_sensitivity=None,
         mouse_speed=None,
+        mouse_axis_enabled=None,
     ) -> None:
         current = self._active_motion_settings_locked()
         self.config.profile_settings[self.config.active_profile] = type(current)(
@@ -174,6 +198,11 @@ class AppSession:
                 normalize_mouse_speed(mouse_speed, current.mouse_speed)
                 if mouse_speed is not None
                 else current.mouse_speed
+            ),
+            mouse_axis_enabled=(
+                normalize_mouse_axis_enabled(mouse_axis_enabled, current.mouse_axis_enabled)
+                if mouse_axis_enabled is not None
+                else current.mouse_axis_enabled
             ),
         )
 
@@ -304,6 +333,18 @@ class AppSession:
                 self.logger.log(
                     "mouse_speed",
                     {"value": value, "profile": self.config.active_profile},
+                )
+            self._save_config()
+            return self.snapshot()
+
+    def set_mouse_axis_enabled(self, enabled) -> dict:
+        enabled = normalize_mouse_axis_enabled(enabled)
+        with self._lock:
+            self._set_active_motion_settings_locked(mouse_axis_enabled=enabled)
+            if self.logger is not None:
+                self.logger.log(
+                    "mouse_axis_enabled",
+                    {"enabled": enabled, "profile": self.config.active_profile},
                 )
             self._save_config()
             return self.snapshot()
@@ -507,10 +548,20 @@ class AppSession:
         with self._lock:
             binding = self.config.actions.get(gesture_label, ActionBinding.disabled())
             output_enabled = self.config.output_enabled
+            settings = self._active_motion_settings_locked()
+            axis_strength = (
+                mouse_axis_strength(prediction, settings.turn_threshold)
+                if settings.mouse_axis_enabled and gesture_label in MOUSE_AXIS_GESTURES
+                else None
+            )
         # Execute OUTSIDE the lock: ActionBinding is frozen, so the captured
         # binding is race-safe, and a macro's time.sleep no longer stalls every
         # other session caller (set_status, snapshot, profile edits) while it runs.
-        result = self.executor.execute(binding) if output_enabled else _blocked_result(binding)
+        result = (
+            self.executor.execute(binding, mouse_strength=axis_strength)
+            if output_enabled
+            else _blocked_result(binding)
+        )
         with self._lock:
             self._gesture_count += 1
             if result.emitted:
@@ -525,6 +576,9 @@ class AppSession:
                 "action_emitted": result.emitted,
                 "output_enabled": output_enabled,
                 "output_reason": result.reason,
+                "mouse_axis_strength": (
+                    round(axis_strength, 4) if axis_strength is not None else None
+                ),
                 "features": {
                     "gyro_p99": round(prediction.features.gyro_p99, 3),
                     "accel_deviation_p99": round(prediction.features.accel_deviation_p99, 3),
@@ -565,6 +619,7 @@ class AppSession:
             "turn_threshold": round(float(getattr(engine, "turn_threshold", settings.turn_threshold)), 0),
             "turn_sensitivity": round(float(getattr(engine, "turn_sensitivity", settings.turn_sensitivity)), 0),
             "mouse_speed": settings.mouse_speed,
+            "mouse_axis_enabled": settings.mouse_axis_enabled,
             "direction": str(getattr(engine, "_last_direction", "idle")),
             "fire": bool(getattr(engine, "_last_fire", False)),
         }
@@ -733,6 +788,8 @@ def handle_control(
         return session.set_turn_sensitivity(payload.get("value"))
     if action == "mouse-speed":
         return session.set_mouse_speed(payload.get("value"))
+    if action == "mouse-axis":
+        return session.set_mouse_axis_enabled(payload.get("enabled"))
     if action == "lang":
         return session.set_lang(str(payload.get("lang", "pl")))
     if action == "test-key":
@@ -1660,6 +1717,10 @@ def build_html() -> str:
     .tilt-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
     .tilt-controls label { font-size: 13px; color: var(--muted); font-weight: 700; }
     .tilt-controls input[type="number"] { width: 90px; }
+    .tilt-controls.axis-toggle-row input[type="checkbox"] {
+      width: 20px; height: 20px; min-height: 0; padding: 0; accent-color: var(--cyan); cursor: pointer;
+    }
+    .tilt-controls.axis-toggle-row label { color: var(--text); cursor: pointer; }
     .tilt-hint { color: var(--muted); font-size: 12px; flex: 1 1 220px; }
     .motion-live { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; font-size: 11px; color: var(--muted); }
     .motion-live code { color: var(--lime); font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 4px; }
@@ -1892,6 +1953,11 @@ def build_html() -> str:
               <input type="range" id="mouse-speed" min="1" max="50" step="1" value="12" style="flex:1 1 160px;"> <code id="mouse-speed-val">12</code>
               <span class="tilt-hint" data-i18n="mouse.speedHint">Saved per profile. Controls movement distance for mapped mouse directions.</span>
             </div>
+            <div class="tilt-controls axis-toggle-row">
+              <input type="checkbox" id="mouse-axis-enabled" checked>
+              <label for="mouse-axis-enabled" data-i18n="mouse.axis">Continuous mouse axis</label>
+              <span class="tilt-hint" data-i18n="mouse.axisHint">For mouse directions mapped to left/right turn, a faster twist moves faster. Disable for fixed steps.</span>
+            </div>
             <div class="motion-live" id="motion-live">
               <span data-i18n="tilt.live.fwd">Forward/back</span> <code id="motion-he">0</code>
               <span data-i18n="tilt.live.side">Side</span> <code id="motion-hd">0</code>
@@ -1996,6 +2062,7 @@ def build_html() -> str:
         'turn.threshold': 'Próg obrotu', 'turn.thresholdHint': 'Zapisywane osobno dla profilu. Niżej = obrót łapie szybciej.',
         'turn.sensitivity': 'Czułość obrotu', 'turn.sensitivityHint': 'Zapisywane osobno dla profilu. Wyżej = bardziej wybacza wolny lub niedoskonały obrót.',
         'mouse.speed': 'Szybkość myszy', 'mouse.speedHint': 'Zapisywane osobno dla profilu. Określa odległość ruchu dla przypisanych kierunków myszy.',
+        'mouse.axis': 'Ciągła oś myszy', 'mouse.axisHint': 'Dla kierunków myszy przypisanych do obrotu w lewo/prawo szybszy obrót daje szybszy ruch. Wyłącz, aby używać stałych kroków.',
         'action.target': 'Klawisz / media / mysz', 'action.macro': 'Makro', 'action.disabled': 'Wyłączone',
         'action.record': 'Nagraj klawisz', 'action.pressKey': 'Naciśnij klawisz', 'action.save': 'Zapisz',
         'tilt.live.fwd': 'Przód/tył', 'tilt.live.side': 'Bok', 'tilt.live.lean': 'Przechył', 'tilt.live.dir': 'Kierunek',
@@ -2025,6 +2092,7 @@ def build_html() -> str:
         'turn.threshold': 'Turn threshold', 'turn.thresholdHint': 'Saved per profile. Lower = twist engages sooner.',
         'turn.sensitivity': 'Turn sensitivity', 'turn.sensitivityHint': 'Saved per profile. Higher = more forgiving slow or imperfect twists.',
         'mouse.speed': 'Mouse speed', 'mouse.speedHint': 'Saved per profile. Controls movement distance for mapped mouse directions.',
+        'mouse.axis': 'Continuous mouse axis', 'mouse.axisHint': 'For mouse directions mapped to left/right turn, a faster twist moves faster. Disable for fixed steps.',
         'action.target': 'Key / Media / Mouse', 'action.macro': 'Macro', 'action.disabled': 'Disabled',
         'action.record': 'Record key', 'action.pressKey': 'Press a key', 'action.save': 'Save',
         'tilt.live.fwd': 'Forward/back', 'tilt.live.side': 'Side', 'tilt.live.lean': 'Lean', 'tilt.live.dir': 'Direction',
@@ -2296,6 +2364,10 @@ def build_html() -> str:
       if (mouseSpeed && document.activeElement !== mouseSpeed && Number.isFinite(m.mouse_speed)) {
         mouseSpeed.value = m.mouse_speed;
         if (mouseSpeedValue) mouseSpeedValue.textContent = m.mouse_speed;
+      }
+      const mouseAxis = document.getElementById('mouse-axis-enabled');
+      if (mouseAxis) {
+        mouseAxis.checked = m.mouse_axis_enabled !== false;
       }
     }
 
@@ -2626,6 +2698,12 @@ def build_html() -> str:
       });
       mouseSpeedInput.addEventListener('change', () => {
         control('mouse-speed', { value: parseInt(mouseSpeedInput.value, 10) });
+      });
+    }
+    const mouseAxisInput = document.getElementById('mouse-axis-enabled');
+    if (mouseAxisInput) {
+      mouseAxisInput.addEventListener('change', () => {
+        control('mouse-axis', { enabled: mouseAxisInput.checked });
       });
     }
     document.getElementById('quit-button').addEventListener('click', () => {

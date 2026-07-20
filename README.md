@@ -2,7 +2,7 @@
 
 ![TRIKI Control desktop UI](triki-control_screenshot.jpg)
 
-![Version](https://img.shields.io/badge/version-1.1.0-ff2bd6.svg) [![Tests](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml/badge.svg)](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+![Version](https://img.shields.io/badge/version-1.1.1-ff2bd6.svg) [![Tests](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml/badge.svg)](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
 **Play PC games by waving a bottle cap around.**
 

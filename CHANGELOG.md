@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+- Added a per-profile Continuous mouse axis option for pointer directions mapped to left/right cap turns.
+- Made pointer speed follow live twist speed, from precise low-speed movement up to the profile's configured Mouse speed.
+- Kept the previous fixed-step pointer behavior available by disabling Continuous mouse axis.
+- Preserved keyboard, media-key, mouse-button and macro behavior, including the established Game/Doom steering path.
+
 ## 1.1.0
 
 - Added an obvious in-app Quit button and a localized notification explaining that X hides TRIKI Control by the clock instead of closing it.

@@ -752,6 +752,30 @@ class HoldKeyEmitterTests(unittest.TestCase):
         self.assertEqual(base.ups, [])
         emitter.close()
 
+    def test_scaled_mouse_movement_tracks_strength_and_carries_fractional_pixels(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=120, mouse_speed=10)
+
+        for _ in range(4):
+            emitter.press_key_scaled("mouse-move-left", 0.25)
+        emitter.press_key_scaled("mouse-move-right", 1.0)
+
+        self.assertEqual(base.pointer_moves, [(-2, 0), (-3, 0), (-2, 0), (-3, 0), (10, 0)])
+        emitter.close()
+
+    def test_scaled_non_mouse_action_uses_unchanged_hold_path(self):
+        base = RecordingEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=120, mouse_speed=10)
+
+        emitter.press_key_scaled("right", 0.1)
+        emitter.press_key_scaled("right", 1.0)
+
+        self.assertEqual(base.downs, ["right"])
+        self.assertEqual(base.pointer_moves, [])
+        emitter.release_all()
+        self.assertEqual(base.ups, ["right"])
+        emitter.close()
+
     def test_mouse_button_uses_same_safe_hold_and_release_path_as_keyboard(self):
         base = RecordingEmitter()
         emitter = HoldKeyEmitter(base, hold_ms=120)

@@ -191,7 +191,7 @@ def _real_stamp_slice():
     return []
 
 
-def prediction(label: str) -> GesturePrediction:
+def prediction(label: str, *, twist: float = 700.0) -> GesturePrediction:
     return GesturePrediction(
         label=label,
         confidence=0.88,
@@ -204,7 +204,7 @@ def prediction(label: str) -> GesturePrediction:
             accel_deviation_p99=300.0,
             accel_delta=400.0,
             orientation_angle_degrees=5.0,
-            c_mean=700.0,
+            c_mean=twist,
             c_positive_fraction=0.6,
             c_negative_fraction=0.0,
             c_sign_runs=1,
@@ -597,6 +597,82 @@ class TrikiAppTests(unittest.TestCase):
         self.assertEqual(emitter.mouse_speed, 7)
         emitter.close()
 
+    def test_continuous_mouse_axis_is_saved_per_profile(self):
+        session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
+        bus = EventBus()
+        control = ConnectionControl(manual_pairing=True)
+
+        game = handle_control(
+            session,
+            "mouse-axis",
+            {"enabled": False},
+            bus=bus,
+            connection_control=control,
+        )
+        session.switch_profile("Music")
+        music = handle_control(
+            session,
+            "mouse-axis",
+            {"enabled": True},
+            bus=bus,
+            connection_control=control,
+        )
+        session.switch_profile("Game")
+
+        self.assertFalse(game["motion"]["mouse_axis_enabled"])
+        self.assertTrue(music["motion"]["mouse_axis_enabled"])
+        self.assertFalse(session.snapshot()["motion"]["mouse_axis_enabled"])
+
+    def test_continuous_mouse_axis_scales_pointer_distance_with_twist_speed(self):
+        base = NullKeyEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=DEFAULT_MOTION_HOLD_MS, mouse_speed=20)
+        session = AppSession(
+            config=TrikiConfig(
+                actions={"turn-right": ActionBinding.key("mouse-move-right")},
+                output_enabled=True,
+                profile_settings={
+                    "Game": MotionProfileSettings(
+                        turn_threshold=1000.0,
+                        mouse_speed=20,
+                        mouse_axis_enabled=True,
+                    ),
+                },
+            ),
+            executor=ActionExecutor(key_emitter=emitter),
+        )
+
+        slow = session.record_prediction(1.0, prediction("turn-right", twist=1000.0))
+        fast = session.record_prediction(1.1, prediction("turn-right", twist=3000.0))
+
+        self.assertEqual(base.pointer_moves, [(2, 0), (20, 0)])
+        self.assertLess(slow["mouse_axis_strength"], fast["mouse_axis_strength"])
+        self.assertEqual(fast["mouse_axis_strength"], 1.0)
+        emitter.close()
+
+    def test_disabling_continuous_mouse_axis_restores_fixed_steps(self):
+        base = NullKeyEmitter()
+        emitter = HoldKeyEmitter(base, hold_ms=DEFAULT_MOTION_HOLD_MS, mouse_speed=20)
+        session = AppSession(
+            config=TrikiConfig(
+                actions={"turn-right": ActionBinding.key("mouse-move-right")},
+                output_enabled=True,
+                profile_settings={
+                    "Game": MotionProfileSettings(
+                        turn_threshold=1000.0,
+                        mouse_speed=20,
+                        mouse_axis_enabled=False,
+                    ),
+                },
+            ),
+            executor=ActionExecutor(key_emitter=emitter),
+        )
+
+        event = session.record_prediction(1.0, prediction("turn-right", twist=1000.0))
+
+        self.assertEqual(base.pointer_moves, [(20, 0)])
+        self.assertIsNone(event["mouse_axis_strength"])
+        emitter.close()
+
     def test_output_control_requires_connection_to_enable_but_always_allows_disable(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
         bus = EventBus()
@@ -903,6 +979,10 @@ class TrikiAppTests(unittest.TestCase):
         self.assertIn('id="quit-button"', html)
         self.assertIn("quit.confirm", html)
         self.assertIn('id="mouse-speed"', html)
+        self.assertIn('id="mouse-axis-enabled"', html)
+        self.assertIn("control('mouse-axis'", html)
+        self.assertIn("mouseAxis.checked = m.mouse_axis_enabled !== false", html)
+        self.assertNotIn("document.activeElement !== mouseAxis", html)
         self.assertIn("mouse-left-button", html)
         self.assertIn("mouse-move-up", html)
         self.assertIn("TURN CONTROL OFF", html)

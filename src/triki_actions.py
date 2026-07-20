@@ -52,7 +52,9 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # 16->17: profile threshold tuning moves to the turn/twist threshold.
 # 17->18: profiles gain a cross-platform mouse movement speed while preserving
 # every compatible Game/Music action override.
-CONFIG_VERSION = 18
+# 18->19: mouse movement mapped to turn controls gains an optional analog axis
+# mode, enabled by default and saved independently for every profile.
+CONFIG_VERSION = 19
 # Action-map compatibility is narrower than the whole config schema. Later schema
 # bumps for Motion tuning must not erase user key overrides from already-compatible
 # Game/Doom configs.
@@ -228,6 +230,21 @@ def normalize_turn_threshold(value, fallback: float = DEFAULT_GAME_TURN_THRESHOL
         return fallback
 
 
+def normalize_mouse_axis_enabled(value, fallback: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        return fallback
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return fallback
+
+
 def can_preserve_builtin_action_overrides(profile_name: str, version: int) -> bool:
     minimum = {
         GAME_PROFILE_NAME: GAME_ACTION_OVERRIDE_VERSION,
@@ -241,6 +258,7 @@ class MotionProfileSettings:
     turn_threshold: float = DEFAULT_GAME_TURN_THRESHOLD
     turn_sensitivity: float = DEFAULT_GAME_TURN_SENSITIVITY
     mouse_speed: int = DEFAULT_MOUSE_SPEED
+    mouse_axis_enabled: bool = True
 
     @classmethod
     def from_dict(
@@ -255,6 +273,10 @@ class MotionProfileSettings:
                 turn_threshold=normalize_turn_threshold(data.turn_threshold, fallback.turn_threshold),
                 turn_sensitivity=normalize_turn_sensitivity(data.turn_sensitivity, fallback.turn_sensitivity),
                 mouse_speed=normalize_mouse_speed(data.mouse_speed, fallback.mouse_speed),
+                mouse_axis_enabled=normalize_mouse_axis_enabled(
+                    data.mouse_axis_enabled,
+                    fallback.mouse_axis_enabled,
+                ),
             )
         if not isinstance(data, dict):
             return fallback
@@ -271,13 +293,18 @@ class MotionProfileSettings:
                 data.get("mouse_speed", fallback.mouse_speed),
                 fallback.mouse_speed,
             ),
+            mouse_axis_enabled=normalize_mouse_axis_enabled(
+                data.get("mouse_axis_enabled", fallback.mouse_axis_enabled),
+                fallback.mouse_axis_enabled,
+            ),
         )
 
-    def to_dict(self) -> dict[str, float]:
+    def to_dict(self) -> dict[str, float | int | bool]:
         return {
             "turn_threshold": normalize_turn_threshold(self.turn_threshold),
             "turn_sensitivity": normalize_turn_sensitivity(self.turn_sensitivity),
             "mouse_speed": normalize_mouse_speed(self.mouse_speed),
+            "mouse_axis_enabled": normalize_mouse_axis_enabled(self.mouse_axis_enabled),
         }
 
 
@@ -468,13 +495,17 @@ class ActionExecutor:
         self.key_emitter = key_emitter if key_emitter is not None else create_default_key_emitter()
         self.sleep = sleep if sleep is not None else time.sleep
 
-    def execute(self, binding: ActionBinding) -> ActionResult:
+    def execute(self, binding: ActionBinding, *, mouse_strength: float | None = None) -> ActionResult:
         try:
             if binding.type == "disabled":
                 return ActionResult(False, "disabled", "action disabled")
             if binding.type == "key":
                 assert binding.key_name is not None
-                self.key_emitter.press_key(binding.key_name)
+                scaled_press = getattr(self.key_emitter, "press_key_scaled", None)
+                if mouse_strength is not None and scaled_press is not None:
+                    scaled_press(binding.key_name, mouse_strength)
+                else:
+                    self.key_emitter.press_key(binding.key_name)
                 return ActionResult(True, binding.key_name, "key emitted")
             if binding.type == "macro":
                 for step in binding.steps:

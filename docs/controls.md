@@ -29,7 +29,8 @@ In **Advanced**, for any profile:
 
 - **Turn threshold:** how strong the twist has to be before it counts as a turn. Lower is touchier.
 - **Turn sensitivity:** how forgiving the turn detector is for slower or less-perfect twists. These turn tuning values are saved per profile, so Game can stay steady while Music can be much more sensitive for volume control.
-- **Mouse speed:** how far the pointer moves for every detected sample when a movement direction is mapped. It is saved per profile, so a game can stay precise while another profile moves quickly.
+- **Mouse speed:** the maximum pointer distance per detected sample. It is saved per profile, so a game can stay precise while another profile moves quickly.
+- **Continuous mouse axis:** enabled by default and saved per profile. When left/right cap turns are mapped to mouse directions, slow twists produce small movements and fast twists approach the configured Mouse speed. Disable it to use the previous fixed-size step on every detected sample.
 
 Every row in **Action Mapping** can be rebound to any key, media key, left/right/middle mouse button, mouse movement direction, or short macro. The Game control labels are `turn-left` and `turn-right` (turn), `go` (walk), `stamp` (fire), `flip` (run), and `scrub-straight` (use/door).
 

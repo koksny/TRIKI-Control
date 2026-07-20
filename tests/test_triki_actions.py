@@ -29,6 +29,7 @@ from triki_actions import (
     load_config,
     normalize_engine,
     normalize_hold_ms,
+    normalize_mouse_axis_enabled,
     parse_macro_text,
     remap_legacy_profile_name,
     save_config,
@@ -120,6 +121,8 @@ class TrikiActionTests(unittest.TestCase):
         self.assertGreater(music.turn_sensitivity, game.turn_sensitivity)
         self.assertEqual(game.mouse_speed, DEFAULT_MOUSE_SPEED)
         self.assertEqual(music.mouse_speed, DEFAULT_MOUSE_SPEED)
+        self.assertTrue(game.mouse_axis_enabled)
+        self.assertTrue(music.mouse_axis_enabled)
 
     def test_empty_config_starts_with_two_profiles_active_game(self):
         config = TrikiConfig().merged_with_defaults()
@@ -228,12 +231,12 @@ class TrikiActionTests(unittest.TestCase):
         self.assertEqual(loaded.actions["turn-right"].key_name, "right")
         self.assertEqual(loaded.active_profile, "Game")
 
-    def test_mouse_speed_round_trips_and_invalid_values_use_profile_fallback(self):
+    def test_mouse_settings_round_trip_and_invalid_values_use_profile_fallback(self):
         config = TrikiConfig(
             version=CONFIG_VERSION,
             profile_settings={
-                "Game": MotionProfileSettings(mouse_speed=24),
-                "Music": {"mouse_speed": "bad"},
+                "Game": MotionProfileSettings(mouse_speed=24, mouse_axis_enabled=False),
+                "Music": {"mouse_speed": "bad", "mouse_axis_enabled": "bad"},
             },
         ).merged_with_defaults()
 
@@ -243,9 +246,13 @@ class TrikiActionTests(unittest.TestCase):
             loaded = load_config(path)
 
         self.assertEqual(loaded.profile_settings["Game"].mouse_speed, 24)
+        self.assertFalse(loaded.profile_settings["Game"].mouse_axis_enabled)
         self.assertEqual(loaded.profile_settings["Music"].mouse_speed, DEFAULT_MOUSE_SPEED)
+        self.assertTrue(loaded.profile_settings["Music"].mouse_axis_enabled)
         self.assertEqual(normalize_mouse_speed(-100), 1)
         self.assertEqual(normalize_mouse_speed(999), 50)
+        self.assertFalse(normalize_mouse_axis_enabled("off"))
+        self.assertTrue(normalize_mouse_axis_enabled("not-a-mode"))
 
     def test_config_save_is_atomic_and_leaves_no_temporary_file(self):
         with tempfile.TemporaryDirectory() as directory:
