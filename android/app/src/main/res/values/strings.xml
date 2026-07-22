@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TRIKI Control</string>
+    <string name="accessibility_service_name">TRIKI Control: sterowanie dotykiem</string>
+    <string name="accessibility_service_description">Wysy&#322;a wy&#322;&#261;cznie skonfigurowane dotkni&#281;cia i przeci&#261;gni&#281;cia. Nie odczytuje tekstu, zawarto&#347;ci ekranu ani danych z innych aplikacji.</string>
+    <string name="notification_channel_name">Po&#322;&#261;czenie z kapslem</string>
+</resources>

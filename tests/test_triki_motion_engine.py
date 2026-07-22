@@ -707,6 +707,56 @@ class NeutralRelockTests(unittest.TestCase):
         self.assertGreater(tilts[-1], 12.0)  # deadlocked: never re-centers
 
 
+class ConnectCalibrationRegressionTests(unittest.TestCase):
+    def test_bootstrap_waits_for_one_continuous_flat_rest_window(self):
+        engine = MotionControlEngine()
+        dt = 0.02
+        t = 0.0
+        predictions = []
+
+        # Keeping the cap in motion for longer than the old fixed settle window
+        # must not teach that motion as the gyro bias.
+        for _ in range(int(2.0 / dt)):
+            predictions.append(
+                engine.add_sample(t, MotionSample(0, (900, 0, 0, *REST)))
+            )
+            t += dt
+        self.assertFalse(engine._booted)
+
+        for _ in range(int(1.4 / dt)):
+            predictions.append(
+                engine.add_sample(t, MotionSample(0, (0, 0, 0, *REST)))
+            )
+            t += dt
+
+        self.assertTrue(engine._booted)
+        self.assertTrue(all(prediction is None for prediction in predictions))
+        self.assertLess(max(abs(value) for value in engine._gbias), 1.0)
+
+    def test_stable_flat_rest_repairs_a_poisoned_reconnect_calibration(self):
+        engine = MotionControlEngine(settle_seconds=0.0)
+        engine.add_sample(0.0, MotionSample(0, (0, 0, 0, *REST)))
+        self.assertTrue(engine._booted)
+
+        engine._gbias = [-700.0, 0.0, 0.0]
+        engine._gref = [1000.0, 1000.0, float(REST[2])]
+        engine._g = list(engine._gref)
+
+        predictions = []
+        t = 0.02
+        for _ in range(40):
+            predictions.append(
+                engine.add_sample(t, MotionSample(0, (0, 0, 0, *REST)))
+            )
+            t += 0.02
+
+        self.assertTrue(all(prediction is None for prediction in predictions))
+        self.assertLess(max(abs(value) for value in engine._gbias), 1.0)
+        self.assertAlmostEqual(engine._gref[0], REST[0], delta=1.0)
+        self.assertAlmostEqual(engine._gref[1], REST[1], delta=1.0)
+        self.assertEqual(engine._last_direction, "idle")
+
+
 # --------------------------------------------------------------------------- #
 # Continuous-output contract (HoldKeyEmitter + NullKeyEmitter).
 # --------------------------------------------------------------------------- #

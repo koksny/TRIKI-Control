@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.TrikiControl" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#0b0c1f</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">#0b0c1f</item>
+        <item name="android:navigationBarColor">#0b0c1f</item>
+        <item name="android:colorAccent">#28e6f2</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

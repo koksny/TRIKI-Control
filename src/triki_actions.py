@@ -30,13 +30,14 @@ from triki_key_emitter import (
 _logger = logging.getLogger("triki")
 
 
-# The app ships EXACTLY two built-in profile slots: "Game" (the default) and
-# "Music". Every profile uses the same body-frame Motion engine settings and
-# bindable controls as Game; Music keeps media-key defaults on those shared rows.
+# The app ships three built-in profile slots: "Game" (the default), "Music", and
+# "Mouse". Every profile uses the same body-frame Motion engine settings and
+# bindable controls as Game; Music and Mouse keep purpose-specific defaults.
 GAME_PROFILE_NAME = "Game"
 MUSIC_PROFILE_NAME = "Music"
+MOUSE_PROFILE_NAME = "Mouse"
 DEFAULT_PROFILE_NAME = GAME_PROFILE_NAME
-BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
+BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME, MOUSE_PROFILE_NAME)
 # CONFIG_VERSION bumped 9->10 for the calibration-grounded control rebuild: the
 # "Game" profile gains the full 10-control MOTION_LABELS set (turn, the two tilt
 # axes, stamp, flip, scrub) on fresh WSAD-based defaults. Pre-v10 Game bindings are
@@ -54,12 +55,16 @@ BUILTIN_PROFILE_NAMES = (GAME_PROFILE_NAME, MUSIC_PROFILE_NAME)
 # every compatible Game/Music action override.
 # 18->19: mouse movement mapped to turn controls gains an optional analog axis
 # mode, enabled by default and saved independently for every profile.
-CONFIG_VERSION = 19
+# 19->20: Mouse becomes a built-in profile. The former Polish custom-profile name
+# "Myszka" is folded into it so existing users keep their settings without seeing
+# a duplicate tile.
+CONFIG_VERSION = 20
 # Action-map compatibility is narrower than the whole config schema. Later schema
 # bumps for Motion tuning must not erase user key overrides from already-compatible
 # Game/Doom configs.
 GAME_ACTION_OVERRIDE_VERSION = 14
 MUSIC_ACTION_OVERRIDE_VERSION = 15
+MOUSE_ACTION_OVERRIDE_VERSION = 19
 MAX_MACRO_DELAY_MS = 5000  # ceiling for a single macro delay step; legit macros use sub-second delays
 MIN_MOTION_TILT_THRESHOLD = 3.0
 MAX_MOTION_TILT_THRESHOLD = 30.0
@@ -249,6 +254,7 @@ def can_preserve_builtin_action_overrides(profile_name: str, version: int) -> bo
     minimum = {
         GAME_PROFILE_NAME: GAME_ACTION_OVERRIDE_VERSION,
         MUSIC_PROFILE_NAME: MUSIC_ACTION_OVERRIDE_VERSION,
+        MOUSE_PROFILE_NAME: MOUSE_ACTION_OVERRIDE_VERSION,
     }.get(normalize_profile_name(profile_name))
     return minimum is not None and version >= minimum
 
@@ -325,16 +331,16 @@ class TrikiConfig:
     lang: str = DEFAULT_LANG
 
     def merged_with_defaults(self) -> TrikiConfig:
-        # UNCONDITIONAL 2-built-in collapse (runs regardless of stored version).
-        # The app ships EXACTLY two BUILT-IN profiles, {Game, Music}, which always
+        # Unconditional built-in collapse (runs regardless of stored version).
+        # The app ships exactly three built-ins, {Game, Music, Mouse}, which always
         # exist with their new defaults. The nine LEGACY built-ins (Default, WASD
         # Game, Doom, Doom Motion, Doom / Steering, Presentation, 'Which Sausage,
         # Mate?', Experimental Pointer, Media) are DROPPED by name -- the maintainer
         # wants them gone ("if I see 3 Doom profiles again..."). Any OTHER stored
         # profile is a user-created custom one and is KEPT (so the management
-        # controls keep working); user OVERRIDES to Game/Music are folded onto the
+        # controls keep working); user overrides to built-ins are folded onto the
         # fresh defaults so Advanced edits persist.
-        merged_profiles = default_profile_map()  # the two built-ins, fresh
+        merged_profiles = default_profile_map()
         for stored_name, stored_actions in self.profiles.items():
             normalized = normalize_profile_name(stored_name)
             body = _normalize_action_map(stored_actions)
@@ -577,14 +583,22 @@ def _music_action_map() -> dict[str, ActionBinding]:
     }
 
 
+def _mouse_action_map() -> dict[str, ActionBinding]:
+    actions = _game_action_map()
+    actions["turn-left"] = ActionBinding.key("mouse-move-left")
+    actions["turn-right"] = ActionBinding.key("mouse-move-right")
+    return actions
+
+
 def default_profile_map() -> dict[str, dict[str, ActionBinding]]:
-    """The complete built-in profile set: EXACTLY two -- Game (default) and
-    Music. Every other historical preset (Default, WASD Game, Presentation,
+    """The complete built-in profile set: Game (default), Music, and Mouse.
+    Every other historical preset (Default, WASD Game, Presentation,
     'Which Sausage, Mate?', Doom, Doom Motion, Doom / Steering, Experimental
     Pointer) is gone."""
     return {
         GAME_PROFILE_NAME: _game_action_map(),
         MUSIC_PROFILE_NAME: _music_action_map(),
+        MOUSE_PROFILE_NAME: _mouse_action_map(),
     }
 
 
@@ -650,6 +664,8 @@ def normalize_action_key(key_name: str) -> str:
 
 def normalize_profile_name(name: str) -> str:
     cleaned = " ".join(name.strip().split())
+    if cleaned.lower() == "myszka":
+        return MOUSE_PROFILE_NAME
     return cleaned[:40] if cleaned else DEFAULT_PROFILE_NAME
 
 
@@ -690,7 +706,7 @@ def engine_for_profile(profile_name: str) -> str:
     return ENGINE_MOTION
 
 
-# Fixed remap from any legacy profile name to the 2-profile world. The old media
+# Fixed remap from legacy profile names to the built-in profile set. The old media
 # preset name still selects Music; everything else (WASD Game, Doom, Doom Motion,
 # Doom / Steering, Default, Presentation, 'Which Sausage, Mate?', Experimental
 # Pointer, and any unknown name) folds onto Game.
@@ -718,7 +734,7 @@ _LEGACY_BUILTIN_NAMES = frozenset(
 
 
 def remap_legacy_profile_name(name: Any) -> str:
-    """Map any stored/active profile name into {Game, Music}. A name that is
+    """Map any stored/active profile name into {Game, Music, Mouse}. A name that is
     already a built-in is returned as-is; 'Media' (case-insensitive) -> Music;
     everything else -> Game."""
     normalized = normalize_profile_name(str(name)) if name is not None else DEFAULT_PROFILE_NAME

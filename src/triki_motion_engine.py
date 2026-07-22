@@ -201,6 +201,9 @@ class MotionControlEngine:
         # SETTLE: emit NOTHING until the neutral/bias have had time to establish at
         # connect, so the cap can be picked up without spraying ghost actions.
         settle_seconds: float = 1.2,
+        bootstrap_gyro_max: float = 300.0,
+        bootstrap_flat_max: float = 350.0,
+        recovery_seconds: float = 0.6,
         hold_seconds: float = 0.05,   # brief sustain to engage (anti-flicker)
         commit_seconds: float = 0.12, # min dwell on a movement before it can switch
         engage_samples: int = 3,      # a movement must persist this many samples to
@@ -258,6 +261,9 @@ class MotionControlEngine:
         self.flip_spin_max = flip_spin_max
         self.flip_sustain_seconds = flip_sustain_seconds
         self.settle_seconds = settle_seconds
+        self.bootstrap_gyro_max = bootstrap_gyro_max
+        self.bootstrap_flat_max = bootstrap_flat_max
+        self.recovery_seconds = recovery_seconds
         self.hold_seconds = hold_seconds
         self.commit_seconds = commit_seconds
         self.engage_samples = engage_samples
@@ -347,7 +353,12 @@ class MotionControlEngine:
         # robust connect-time bootstrap of the rest bias/neutral (median over settle)
         self._boot_gyro: list[tuple[float, float, float]] = []
         self._boot_acc: list[tuple[float, float, float]] = []
+        self._boot_since: float | None = None
         self._booted = False
+        self._recovery_gyro: list[tuple[float, float, float]] = []
+        self._recovery_acc: list[tuple[float, float, float]] = []
+        self._recovery_since: float | None = None
+        self._calibration_recovering = False
         # rolling buffer of the horizontal MOTION vector (raw accel - rest) over the
         # window -- its PATTERN (spread / line / line+rotation) classifies the control.
         self._rh_buf: deque[tuple[float, float, float]] = deque()
@@ -379,6 +390,93 @@ class MotionControlEngine:
             self._gbias = list(gbias)
             self._booted = True
 
+    def _is_raw_flat_rest(self, gyro, acc, accdev: float) -> bool:
+        return (
+            _vnorm(gyro) < self.bootstrap_gyro_max
+            and accdev < self.still_acc
+            and math.hypot(acc[0], acc[1]) < self.bootstrap_flat_max
+            and acc[2] < 0.0
+        )
+
+    def _clear_detection_state(self) -> None:
+        self._still_since = None
+        self._flip_since = None
+        self._flipped = False
+        self._turning = 0
+        self._going = False
+        self._last_stamp_t = None
+        self._last_go_t = None
+        self._stamp_armed = True
+        self._gesture_label = None
+        self._idle_n = 0
+        self._cand_label = None
+        self._cand_n = 0
+        self._go_tilt_n = 0
+        self._rh_buf.clear()
+        self._active = False
+
+    def _update_bootstrap(self, t: float, gyro, acc, accdev: float) -> None:
+        if self._booted:
+            return
+        if not self._is_raw_flat_rest(gyro, acc, accdev):
+            self._boot_gyro.clear()
+            self._boot_acc.clear()
+            self._boot_since = None
+            return
+        if self._boot_since is None:
+            self._boot_since = t
+            self._first_t = t
+            self._boot_gyro.clear()
+            self._boot_acc.clear()
+        self._boot_gyro.append(gyro)
+        self._boot_acc.append(acc)
+        minimum_samples = 1 if self.settle_seconds <= 0.0 else 5
+        if (t - self._boot_since) < self.settle_seconds or len(self._boot_gyro) < minimum_samples:
+            return
+        self._gbias = [_median([s[i] for s in self._boot_gyro]) for i in range(3)]
+        self._gref = [_median([s[i] for s in self._boot_acc]) for i in range(3)]
+        self._g = list(self._gref)
+        self._boot_gyro.clear()
+        self._boot_acc.clear()
+        self._boot_since = None
+        self._booted = True
+        self._clear_detection_state()
+
+    def _update_calibration_recovery(self, t: float, gyro, acc, accdev: float) -> None:
+        if not self._booted:
+            return
+        assert self._gbias is not None and self._gref is not None
+        corrected_spin = _vnorm(tuple(gyro[i] - self._gbias[i] for i in range(3)))
+        neutral_error = math.hypot(acc[0] - self._gref[0], acc[1] - self._gref[1])
+        calibration_mismatch = (
+            corrected_spin > max(self.bootstrap_gyro_max, self.still_gyro * 1.5)
+            or neutral_error > max(self.bootstrap_flat_max, self.lean_on * 1.5)
+        )
+        if not calibration_mismatch or not self._is_raw_flat_rest(gyro, acc, accdev):
+            self._recovery_gyro.clear()
+            self._recovery_acc.clear()
+            self._recovery_since = None
+            self._calibration_recovering = False
+            return
+        if self._recovery_since is None:
+            self._recovery_since = t
+            self._recovery_gyro.clear()
+            self._recovery_acc.clear()
+            self._clear_detection_state()
+        self._calibration_recovering = True
+        self._recovery_gyro.append(gyro)
+        self._recovery_acc.append(acc)
+        if (t - self._recovery_since) < self.recovery_seconds or len(self._recovery_gyro) < 5:
+            return
+        self._gbias = [_median([s[i] for s in self._recovery_gyro]) for i in range(3)]
+        self._gref = [_median([s[i] for s in self._recovery_acc]) for i in range(3)]
+        self._g = list(self._gref)
+        self._recovery_gyro.clear()
+        self._recovery_acc.clear()
+        self._recovery_since = None
+        self._calibration_recovering = False
+        self._clear_detection_state()
+
     def add_sample(self, elapsed_seconds: float, sample: MotionSample):
         from triki_classifier import GesturePrediction  # local: avoid import cycle
 
@@ -401,27 +499,13 @@ class MotionControlEngine:
             self._first_t = elapsed_seconds
         assert self._g is not None and self._gref is not None and self._gbias is not None
 
-        # ---- ROBUST CONNECT BOOTSTRAP: a SINGLE first sample can be an OUTLIER (a
-        # resumed-after-drop packet, or the cap mid-handling at connect). Seeding the
-        # gyro bias / accel neutral from it poisons EVERY downstream estimate -- e.g. a
-        # one-off gyro spike makes the bias wrong, so spin stays inflated, so the cap
-        # never reads "still", so the relock that would fix the bias never runs: a
-        # DEADLOCK that leaves the cap reading a permanent phantom slide. So across the
-        # settle window we gather samples and re-seed bias/neutral from their per-axis
-        # MEDIAN (outlier-proof). The true rest values are very stable, so the median
-        # nails them and self-corrects a bad first packet. ----
-        if not self._booted:
-            self._boot_gyro.append(gyro)
-            self._boot_acc.append(acc)
-            if (elapsed_seconds - self._first_t) >= self.settle_seconds and len(self._boot_gyro) >= 5:
-                self._gbias = [_median([s[i] for s in self._boot_gyro]) for i in range(3)]
-                self._gref = [_median([s[i] for s in self._boot_acc]) for i in range(3)]
-                self._g = list(self._gref)
-                self._boot_gyro = []
-                self._boot_acc = []
-                self._booted = True
-
         accdev = abs(acc_mag - self.gravity_units)
+        # Calibrate only from one continuous flat, motionless window. Moving the cap
+        # during connection restarts the window instead of teaching that movement as
+        # neutral. The recovery path applies the same raw-rest test if a reconnect ever
+        # preserves a stale bias that would otherwise deadlock the normal relock.
+        self._update_bootstrap(elapsed_seconds, gyro, acc, accdev)
+        self._update_calibration_recovery(elapsed_seconds, gyro, acc, accdev)
         # FREEZE the gravity estimate during a vertical IMPACT (a stamp). An impact is
         # a big momentary accel spike that is NOT gravity; folding it into the smoothed
         # g would tip g[2] -> f_tilt spikes for a few samples AFTER the impact -> a
@@ -671,7 +755,7 @@ class MotionControlEngine:
         A gesture-label LOCK holds the one chosen control for the whole gesture, but a
         SCRUB upgrades to GO the moment the cap tilts (a lift that starts flat)."""
         # ---- SETTLE: nothing until the neutral/bias establish at connect. ----
-        if self._first_t is not None and (t - self._first_t) < self.settle_seconds:
+        if not self._booted or self._calibration_recovering:
             self._gesture_label = self._cand_label = None
             self._cand_n = self._idle_n = 0
             self._turning = 0

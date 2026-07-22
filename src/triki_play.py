@@ -107,6 +107,10 @@ async def write_led_state(client, enabled: bool) -> None:
     await client.write_gatt_char(LED_CHARACTERISTIC_UUID, payload, response=True)
 
 
+async def disconnect_client(client) -> None:
+    await client.disconnect()
+
+
 class BleCommandBridge:
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -139,6 +143,21 @@ class BleCommandBridge:
         except FutureTimeoutError as exc:
             future.cancel()
             raise TimeoutError("Timed out writing TRIKI LED state.") from exc
+
+    def disconnect(self, *, timeout_seconds: float = 3.0) -> None:
+        with self._lock:
+            client = self._client
+            loop = self._loop
+        if client is None or loop is None or not loop.is_running():
+            raise RuntimeError("TRIKI is not connected.")
+        if not getattr(client, "is_connected", False):
+            return
+        future = asyncio.run_coroutine_threadsafe(disconnect_client(client), loop)
+        try:
+            future.result(timeout_seconds)
+        except FutureTimeoutError as exc:
+            future.cancel()
+            raise TimeoutError("Timed out disconnecting TRIKI.") from exc
 
 
 class PlaySession:

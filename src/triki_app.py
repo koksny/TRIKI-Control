@@ -762,6 +762,24 @@ def handle_control(
         return session.snapshot()
     if action == "pairing":
         return connection_control.request_pairing(session, bus)
+    if action == "disconnect":
+        if command_bridge is None:
+            raise RuntimeError("TRIKI disconnect control is not available.")
+        connection_control.request_disconnect(session, bus)
+        try:
+            command_bridge.disconnect()
+        except Exception:
+            if session.status not in OUTPUT_ACTIVE_STATUSES and session.status != "disconnecting":
+                return session.snapshot()
+            connection_control.cancel_disconnect()
+            state = session.set_status("ready", "Could not disconnect TRIKI.")
+            bus.publish({"type": "state", "state": state})
+            raise
+        if session.status == "disconnecting":
+            state = session.set_status("disconnected", "TRIKI disconnected by user.")
+            bus.publish({"type": "state", "state": state})
+            return state
+        return session.snapshot()
     if action == "quit":
         return session.set_output_enabled(False)
     if action == "led":
@@ -1580,10 +1598,11 @@ def build_html() -> str:
     .pair-button:hover { transform: translateY(-2px); }
     .pair-button:active { transform: translateY(1px) scale(.99); }
     .pair-button.connected {
-      color: #042713;
-      background: linear-gradient(135deg, var(--lime), #2fe0a0);
-      box-shadow: 0 0 30px var(--glow-lime), inset 0 -3px 0 rgba(0,0,0,0.2);
+      color: #fff;
+      background: linear-gradient(135deg, var(--red), #d9365a);
+      box-shadow: 0 0 24px rgba(255,77,109,.38), inset 0 -3px 0 rgba(0,0,0,0.2);
     }
+    .pair-button:disabled { cursor: wait; opacity: .72; transform: none; }
     @keyframes pulse { 0%,100% { box-shadow: 0 0 22px var(--glow-cyan);} 50% { box-shadow: 0 0 44px var(--glow-cyan);} }
     .pair-button:not(.connected) { animation: pulse 1.8s ease-in-out infinite; }
 
@@ -2046,6 +2065,7 @@ def build_html() -> str:
         'hero.title': 'Twój kapsel na żywo', 'hero.neutralHint': 'Kręć, przechylaj lub stempluj kapsel!',
         'hero.power': 'MOC',
         'connect.step': 'Krok 1 \\u2014 Połącz', 'connect.pair': 'Połącz TRIKI', 'connect.connected': 'Połączono',
+        'connect.disconnect': 'Rozłącz', 'connect.disconnecting': 'Rozłączanie...',
         'games.step': 'Krok 2 \\u2014 Wybierz grę',
         'power.step': 'Krok 3 \\u2014 Sterowanie',
         'power.turnOn': 'WŁĄCZ STEROWANIE', 'power.turnOff': 'WYŁĄCZ STEROWANIE',
@@ -2076,6 +2096,7 @@ def build_html() -> str:
         'hero.title': 'Your cap, live', 'hero.neutralHint': 'Spin, tilt or stamp your cap!',
         'hero.power': 'POWER',
         'connect.step': 'Step 1 \\u2014 Connect', 'connect.pair': 'Pair TRIKI', 'connect.connected': 'Connected',
+        'connect.disconnect': 'Disconnect', 'connect.disconnecting': 'Disconnecting...',
         'games.step': 'Step 2 \\u2014 Pick your game',
         'power.step': 'Step 3 \\u2014 Control',
         'power.turnOn': 'TURN CONTROL ON', 'power.turnOff': 'TURN CONTROL OFF',
@@ -2107,6 +2128,7 @@ def build_html() -> str:
         connecting: ['Łączenie z TRIKI...', 'Nie naciskaj przycisku podczas łączenia.'],
         connected: ['Połączono. Uruchamiam sterowanie...', 'Nie naciskaj przycisku parowania podczas połączenia.'],
         ready: ['TRIKI jest połączone i gotowe.', 'Wybierz profil, potem włącz sterowanie.'],
+        disconnecting: ['Rozłączanie TRIKI...', 'Sterowanie zostało wyłączone.'],
         retrying: ['Połączenie nie jest gotowe. Próbuję ponownie...', 'Trzymaj TRIKI blisko komputera i poczekaj.'],
         reconnecting: ['Połączenie zostało przerwane. Próbuję ponownie...', 'Trzymaj TRIKI blisko komputera i poczekaj.'],
         disconnected: ['TRIKI zostało rozłączone. Sterowanie jest wyłączone.', 'Kliknij „Połącz TRIKI”, aby połączyć ponownie.'],
@@ -2119,6 +2141,7 @@ def build_html() -> str:
         connecting: ['Connecting to TRIKI...', 'Do not press the button while connecting.'],
         connected: ['Connected. Starting control...', 'Do not press the pairing button while connected.'],
         ready: ['TRIKI is connected and ready.', 'Choose a profile, then turn control on.'],
+        disconnecting: ['Disconnecting TRIKI...', 'Control has been turned off.'],
         retrying: ['The connection is not ready. Trying again...', 'Keep TRIKI close to the computer and wait.'],
         reconnecting: ['The connection was interrupted. Trying again...', 'Keep TRIKI close to the computer and wait.'],
         disconnected: ['TRIKI disconnected. Control is off.', 'Click Pair TRIKI to connect again.'],
@@ -2214,16 +2237,18 @@ def build_html() -> str:
 
     // Kid-friendly names + emoji per real profile, localized PL/EN. Keys are the
     // EXACT server profile names (control('profile',{operation:'switch',name})).
-    // EXACTLY two built-in slots. Both use the same Game/Motion action rows;
-    // Music keeps media-key defaults on those shared rows.
+    // Three built-in slots use the same Game/Motion action rows, with defaults
+    // tailored to games, media control, or pointer movement.
     const GAME_META = {
       en: {
         'Game': { emoji: '\\uD83C\\uDFAE', name: 'Game', desc: 'Tilt, twist, stamp' },
-        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Music', desc: 'Media keys' }
+        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Music', desc: 'Media keys' },
+        'Mouse': { emoji: '\\uD83D\\uDDB1\\uFE0F', name: 'Mouse', desc: 'Twist = pointer' }
       },
       pl: {
         'Game': { emoji: '\\uD83C\\uDFAE', name: 'Gra', desc: 'Przechył, obrót, stempel' },
-        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Muzyka', desc: 'Sterowanie muzyka' }
+        'Music': { emoji: '\\uD83C\\uDFB5', name: 'Muzyka', desc: 'Sterowanie muzyką' },
+        'Mouse': { emoji: '\\uD83D\\uDDB1\\uFE0F', name: 'Myszka', desc: 'Obrót = kursor' }
       }
     };
     function gameMetaFor(name) {
@@ -2307,8 +2332,13 @@ def build_html() -> str:
       const pairButton = document.querySelector('.pair-button');
       const ledButton = document.getElementById('led-test');
       const isConnected = state.status === 'connected' || state.status === 'ready';
+      const isDisconnecting = state.status === 'disconnecting';
       pairButton.classList.toggle('connected', isConnected);
-      pairButton.textContent = isConnected ? T('connect.connected') : T('connect.pair');
+      pairButton.disabled = isDisconnecting;
+      pairButton.dataset.action = isConnected ? 'disconnect' : 'pairing';
+      pairButton.textContent = isConnected
+        ? T('connect.disconnect')
+        : (isDisconnecting ? T('connect.disconnecting') : T('connect.pair'));
       ledButton.disabled = !isConnected;
       if (!isConnected && ledHeld) {
         ledHeld = false;

@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="triki-control-icon.png">
+  <title>TRIKI Control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0c1f;
+      --surface: #13152d;
+      --surface-2: #1a1838;
+      --line: #3d3670;
+      --text: #f4f2ff;
+      --muted: #a9a3ca;
+      --cyan: #28e6f2;
+      --green: #4bf19a;
+      --pink: #ff2bd6;
+      --yellow: #ffd43b;
+      --red: #ff6b7d;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    body {
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+        env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    button, input { font: inherit; letter-spacing: 0; }
+    button { touch-action: manipulation; }
+
+    .app {
+      width: min(100%, 760px);
+      min-height: 100vh;
+      margin: 0 auto;
+      background: var(--surface);
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 78px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #101128;
+    }
+
+    .app-icon {
+      width: 52px;
+      height: 52px;
+      flex: 0 0 52px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 23px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .version {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line);
+      background: #0e1025;
+    }
+
+    .step {
+      min-width: 0;
+      padding: 10px 8px;
+      text-align: center;
+      border-right: 1px solid #2a2852;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .step:last-child { border-right: 0; }
+
+    .step strong {
+      display: block;
+      margin-top: 3px;
+      overflow: hidden;
+      color: var(--text);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      margin-right: 5px;
+      border-radius: 50%;
+      background: #65617d;
+    }
+
+    .ok .dot { background: var(--green); box-shadow: 0 0 10px rgba(75, 241, 154, .65); }
+    .busy .dot { background: var(--yellow); }
+    .bad .dot { background: var(--red); }
+
+    section {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      line-height: 1.25;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .disclosure {
+      border-left: 4px solid var(--yellow);
+      background: #202038;
+    }
+
+    .disclosure p {
+      margin: 0 0 12px;
+      color: #e2def4;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .restricted-help {
+      display: none;
+      margin: 12px 0;
+      padding-top: 12px;
+      border-top: 1px solid #54516b;
+    }
+
+    .restricted-help.visible { display: block; }
+
+    .check-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      margin: 12px 0;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .check-row input {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      margin-right: 10px;
+      accent-color: var(--green);
+    }
+
+    .commands {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    button {
+      min-height: 46px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #211d45;
+      color: var(--text);
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button:active { transform: translateY(1px); }
+    button:disabled { opacity: .43; cursor: default; transform: none; }
+    .primary { border-color: var(--green); background: var(--green); color: #071a11; }
+    .secondary { border-color: var(--cyan); color: var(--cyan); }
+    .danger { border-color: var(--red); color: #ffadb8; }
+    .wide { grid-column: 1 / -1; }
+
+    .live {
+      display: grid;
+      grid-template-columns: 104px minmax(0, 1fr);
+      gap: 16px;
+      align-items: center;
+      background: #11132b;
+    }
+
+    .cap-stage {
+      width: 104px;
+      height: 104px;
+      position: relative;
+      perspective: 360px;
+    }
+
+    .cap-model {
+      --cap-turn: 0deg;
+      --cap-x: 0px;
+      --cap-y: 0px;
+      --cap-tilt: 0deg;
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      transform: translate3d(var(--cap-x), var(--cap-y), 0)
+        rotateX(var(--cap-tilt)) rotateZ(var(--cap-turn));
+      transform-style: preserve-3d;
+      filter: drop-shadow(0 0 10px rgba(40, 230, 242, .18));
+      transition: transform 100ms linear, filter 120ms ease;
+      will-change: transform;
+    }
+
+    .cap {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .cap-spin-marker {
+      position: absolute;
+      top: 8%;
+      left: 50%;
+      width: 10px;
+      height: 10px;
+      border: 2px solid #0c0a1c;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 9px rgba(40, 230, 242, .8);
+      transform: translate(-50%, -50%);
+    }
+
+    .mascot-face {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .mascot-eyes {
+      position: absolute;
+      top: 44%;
+      left: 50%;
+      display: flex;
+      gap: 0;
+      transform: translate(-50%, -50%);
+    }
+
+    .mascot-eye {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #14102b;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, .86), 0 2px 4px rgba(0, 0, 0, .45);
+      transition: height 80ms ease, transform 120ms ease;
+    }
+
+    .mascot-eye + .mascot-eye { margin-left: 18px; }
+
+    .mascot-mouth {
+      position: absolute;
+      top: 60%;
+      left: 50%;
+      width: 28px;
+      height: 3px;
+      border: 0;
+      border-radius: 2px;
+      background: #14102b;
+      transform: translateX(-50%);
+    }
+
+    .mascot-face.blink .mascot-eye { height: 2px; }
+
+    .cap-stage.motion-go .cap-model { --cap-y: -4px; --cap-tilt: 28deg; }
+    .cap-stage.motion-flip .cap-model { --cap-tilt: 180deg; }
+    .cap-stage.motion-turn-left .cap-model { --cap-x: -4px; }
+    .cap-stage.motion-turn-right .cap-model { --cap-x: 4px; }
+    .cap-stage.motion-scrub { animation: cap-scrub 420ms ease-in-out infinite alternate; }
+    .cap-stage.pulse-stamp { animation: cap-stamp 360ms ease-out; }
+
+    @keyframes cap-scrub {
+      from { transform: translateX(-6px); }
+      to { transform: translateX(6px); }
+    }
+
+    @keyframes cap-stamp {
+      0%, 100% { transform: translateY(0); }
+      45% { transform: translateY(10px); filter: drop-shadow(0 0 18px rgba(255, 43, 214, .68)); }
+    }
+
+    .motion-name {
+      margin: 2px 0 6px;
+      color: var(--green);
+      font-size: 24px;
+      font-weight: 900;
+      overflow-wrap: anywhere;
+    }
+
+    .status-detail {
+      min-height: 36px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .meter {
+      height: 8px;
+      margin-top: 10px;
+      overflow: hidden;
+      border-radius: 4px;
+      background: #292943;
+    }
+
+    .meter > span {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: var(--pink);
+      transition: width 80ms linear;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .metrics code { display: block; margin-top: 2px; color: var(--text); font-size: 12px; }
+
+    .output-band {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      background: #15182e;
+    }
+
+    .output-band p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+
+    .switch {
+      position: relative;
+      width: 66px;
+      height: 36px;
+      flex: 0 0 66px;
+    }
+
+    .switch input { position: absolute; opacity: 0; pointer-events: none; }
+
+    .switch span {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      border: 2px solid #565171;
+      border-radius: 18px;
+      background: #292641;
+    }
+
+    .switch span::after {
+      content: "";
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #aaa6bb;
+      transition: transform 130ms ease, background 130ms ease;
+    }
+
+    .switch input:checked + span { border-color: var(--green); background: #163c2b; }
+    .switch input:checked + span::after { transform: translateX(30px); background: var(--green); }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
+      padding: 0;
+      border-bottom: 1px solid var(--line);
+      background: #101228;
+    }
+
+    .tab {
+      min-height: 48px;
+      border: 0;
+      border-right: 1px solid #2a2852;
+      border-radius: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .tab:last-child { border-right: 0; }
+    .tab.active { color: var(--cyan); box-shadow: inset 0 -3px var(--cyan); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    button.mapping {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      min-height: 0;
+      padding: 10px 0;
+      border: 0;
+      border-bottom: 1px solid #2a2852;
+      border-radius: 0;
+      background: transparent;
+      text-align: left;
+    }
+
+    button.mapping:active { transform: none; background: #1a1b37; }
+    button.mapping:last-child { border-bottom: 0; }
+    .mapping > span:first-child { min-width: 0; flex: 1 1 auto; }
+    .mapping strong { display: block; font-size: 14px; }
+    .mapping small { display: block; margin-top: 3px; color: var(--muted); line-height: 1.35; }
+    .mapping-value { display: flex; align-items: center; flex: 0 0 auto; gap: 0; margin-left: 12px; color: var(--green); }
+    .mapping output { max-width: 145px; font-size: 12px; font-weight: 800; text-align: right; }
+    .mapping-chevron { margin-left: 7px; color: var(--cyan); font-size: 22px; font-weight: 400; line-height: 1; }
+
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .test-grid button { min-width: 0; padding: 8px 4px; font-size: 12px; }
+
+    .control-test {
+      margin-top: 14px;
+      border-top: 1px solid #2a2852;
+    }
+
+    .control-test summary {
+      min-height: 46px;
+      padding: 14px 2px 10px;
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .control-test .hint { margin-top: 2px; }
+    .control-test:not([open]) .test-grid { display: none; }
+
+    .field {
+      padding: 12px 0;
+      border-bottom: 1px solid #2a2852;
+    }
+
+    .field:last-child { border-bottom: 0; }
+
+    .field-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .field-head output { color: var(--cyan); font-family: ui-monospace, monospace; }
+
+    input[type="range"] {
+      width: 100%;
+      height: 28px;
+      margin: 0;
+      accent-color: var(--pink);
+    }
+
+    .hint {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(18px + env(safe-area-inset-bottom));
+      z-index: 5;
+      width: min(calc(100% - 32px), 520px);
+      padding: 12px 14px;
+      border: 1px solid var(--cyan);
+      border-radius: 7px;
+      background: #090b1a;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.4;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 8px);
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .toast.error { border-color: var(--red); }
+
+    .modal {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 10;
+      display: grid;
+      align-items: end;
+      padding: 16px;
+      background: rgba(4, 5, 17, .78);
+    }
+
+    .modal[hidden] { display: none; }
+
+    .modal-sheet {
+      width: min(100%, 560px);
+      max-height: calc(100vh - 32px);
+      margin: 0 auto;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px 8px 4px 4px;
+      background: #11132b;
+      box-shadow: 0 -12px 40px rgba(0, 0, 0, .48);
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-head h2 { margin: 0; }
+    .modal-close { width: 42px; min-height: 42px; padding: 0; font-size: 23px; }
+    .mapping-options { padding: 6px 16px 16px; }
+
+    .mapping-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      min-height: 52px;
+      padding: 10px 0;
+      border: 0;
+      border-bottom: 1px solid #2a2852;
+      border-radius: 0;
+      background: transparent;
+      text-align: left;
+    }
+
+    .mapping-option:last-child { border-bottom: 0; }
+    .mapping-option:active { transform: none; background: #1a1b37; }
+    .mapping-option > span:first-child { min-width: 0; flex: 1 1 auto; }
+    .mapping-option strong { display: block; font-size: 14px; }
+    .mapping-option small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .mapping-option .selected { width: 24px; flex: 0 0 24px; margin-left: 12px; color: var(--green); font-size: 20px; text-align: center; }
+
+    footer {
+      padding: 14px 16px 24px;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: center;
+    }
+
+    @media (max-width: 390px) {
+      .version { display: none; }
+      .live { grid-template-columns: 84px minmax(0, 1fr); }
+      .cap-stage { width: 84px; height: 84px; }
+      .test-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .motion-name { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <img class="app-icon" src="triki-control-icon.png" alt="">
+      <div>
+        <h1>TRIKI Control</h1>
+        <div class="subtitle">Sterownik dotykowy Android</div>
+      </div>
+      <div class="version" id="version">alpha</div>
+    </header>
+
+    <div class="steps">
+      <div class="step" id="access-step"><span class="dot"></span>1. Dotyk<strong id="access-state">Wy&#322;&#261;czony</strong></div>
+      <div class="step" id="ble-step"><span class="dot"></span>2. Kapsel<strong id="ble-state">Gotowy</strong></div>
+      <div class="step" id="output-step"><span class="dot"></span>3. Wyj&#347;cie<strong id="output-state">OFF</strong></div>
+    </div>
+
+    <section class="disclosure" id="disclosure">
+      <h2>Sterowanie w innych aplikacjach</h2>
+      <p>Us&#322;uga u&#322;atwie&#324; dost&#281;pu wysy&#322;a wy&#322;&#261;cznie skonfigurowane dotkni&#281;cia i przeci&#261;gni&#281;cia. Nie odczytuje tekstu, ekranu ani danych z gier.</p>
+      <label class="check-row">
+        <input type="checkbox" id="disclosure-check">
+        <span>Rozumiem i chc&#281; w&#322;&#261;czy&#263; sterowanie dotykiem TRIKI.</span>
+      </label>
+      <button class="secondary wide" id="access-button">Otw&#243;rz ustawienia u&#322;atwie&#324; dost&#281;pu</button>
+      <div class="restricted-help" id="restricted-help">
+        <p><strong>Android 13+:</strong> je&#347;li pojawi si&#281; komunikat &bdquo;Ustawienie z ograniczeniami&rdquo;, otw&#243;rz list&#281; wszystkich aplikacji, wybierz <strong id="restricted-app-name">TRIKI Control</strong>, potem menu z trzema kropkami i &bdquo;Zezw&#243;l na ustawienia z ograniczeniami&rdquo;.</p>
+        <button id="installed-apps-button">Otw&#243;rz list&#281; Wszystkie aplikacje</button>
+      </div>
+    </section>
+
+    <section class="live">
+      <div class="cap-stage" id="cap-stage" aria-label="Kapsel TRIKI">
+        <div class="cap-model" id="live-cap">
+          <img class="cap" src="triki-cap-front.png" alt="">
+          <div class="mascot-face flat" id="mascot-face" aria-hidden="true">
+            <div class="mascot-eyes"><span class="mascot-eye"></span><span class="mascot-eye"></span></div>
+            <div class="mascot-mouth"></div>
+          </div>
+          <span class="cap-spin-marker" aria-hidden="true"></span>
+        </div>
+      </div>
+      <div>
+        <div class="motion-name" id="motion-name">IDLE</div>
+        <div class="status-detail" id="status-detail">W&#322;&#261;cz sterowanie dotykiem, a potem po&#322;&#261;cz kapsel.</div>
+        <div class="meter"><span id="strength-meter"></span></div>
+        <div class="metrics">
+          <span>Twist<code id="twist-value">0</code></span>
+          <span>Tilt<code id="tilt-value">0</code></span>
+          <span>Pr&#243;bki<code id="sample-value">0</code></span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="commands">
+        <button class="primary" id="connect-button">Po&#322;&#261;cz kapsel</button>
+        <button class="danger" id="disconnect-button" disabled>Roz&#322;&#261;cz</button>
+        <button class="secondary wide" id="led-button" disabled>Przytrzymaj: test diody</button>
+      </div>
+    </section>
+
+    <section class="output-band">
+      <div>
+        <h2 style="margin-bottom:0">Sterowanie w grze</h2>
+        <p>Startuje zawsze wy&#322;&#261;czone.</p>
+      </div>
+      <label class="switch" aria-label="W&#322;&#261;cz sterowanie">
+        <input type="checkbox" id="output-toggle">
+        <span></span>
+      </label>
+    </section>
+
+    <nav class="tabs" aria-label="Ustawienia">
+      <button class="tab active" data-tab="controls">Mapowanie</button>
+      <button class="tab" data-tab="positions">Pozycje</button>
+      <button class="tab" data-tab="tuning">Czu&#322;o&#347;&#263;</button>
+    </nav>
+
+    <section class="tab-panel active" id="tab-controls">
+      <h2>Profil Game</h2>
+      <div id="mapping-list"></div>
+      <details class="control-test" id="control-test">
+        <summary>Testuj sterowanie</summary>
+        <p class="hint">Test ma 5 sekund op&#243;&#378;nienia. Naci&#347;nij przycisk i prze&#322;&#261;cz si&#281; do gry.</p>
+        <div class="test-grid">
+          <button data-test="TURN_LEFT">Test lewo</button>
+          <button data-test="GO">Test prz&#243;d</button>
+          <button data-test="TURN_RIGHT">Test prawo</button>
+          <button data-test="JOYSTICK_DOWN">Test d&#243;&#322;</button>
+          <button data-test="SCROLL_UP">Test scroll &#8593;</button>
+          <button data-test="SCROLL_DOWN">Test scroll &#8595;</button>
+          <button data-test="STAMP">Test atak</button>
+          <button data-test="SCRUB">Test u&#380;yj</button>
+          <button data-test="FLIP">Test bieg</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="tab-panel" id="tab-positions">
+      <h2>Wsp&#243;&#322;rz&#281;dne ekranu gry</h2>
+      <p class="hint" style="margin-top:0">Warto&#347;ci s&#261; procentem szeroko&#347;ci i wysoko&#347;ci aktualnego ekranu. Ustaw je pod uk&#322;ad przycisk&#243;w konkretnej gry.</p>
+      <div id="position-fields"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-tuning">
+      <h2>Obr&#243;t kapsla</h2>
+      <div class="field">
+        <div class="field-head"><label for="turnThreshold">Threshold</label><output id="turnThreshold-out">1000</output></div>
+        <input type="range" id="turnThreshold" data-setting="turnThreshold" min="400" max="1600" step="25">
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="turnSensitivity">Czu&#322;o&#347;&#263;</label><output id="turnSensitivity-out">50%</output></div>
+        <input type="range" id="turnSensitivity" data-setting="turnSensitivity" min="0" max="100" step="1">
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="invertTurn">
+        <span>Odwr&#243;&#263; kierunek skr&#281;tu</span>
+      </label>
+      <p class="hint">Ni&#380;szy threshold uruchamia skr&#281;t przy wolniejszym obrocie. Wy&#380;sza czu&#322;o&#347;&#263; toleruje mniej idealny obr&#243;t wok&#243;&#322; pionowej osi.</p>
+    </section>
+
+    <footer>TRIKI Control Android. Sterowanie jest wy&#322;&#261;czane po roz&#322;&#261;czeniu Bluetooth.</footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="modal" id="mapping-modal" role="dialog" aria-modal="true" aria-labelledby="mapping-title" hidden>
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <h2 id="mapping-title">Mapowanie</h2>
+        <button class="modal-close" id="mapping-close" aria-label="Zamknij">&#215;</button>
+      </div>
+      <div class="mapping-options" id="mapping-options"></div>
+    </div>
+  </div>
+
+  <script>
+    const defaults = {
+      joystickX: 0.18, joystickY: 0.74, joystickRadius: 0.12,
+      stampX: 0.82, stampY: 0.68,
+      scrubX: 0.74, scrubY: 0.84,
+      flipX: 0.90, flipY: 0.84,
+      turnThreshold: 1000, turnSensitivity: 50,
+      turnLeftAction: 'TURN_LEFT', turnRightAction: 'TURN_RIGHT', goAction: 'GO',
+      stampAction: 'STAMP', scrubAction: 'SCRUB', flipAction: 'FLIP',
+      invertTurn: true, outputEnabled: false, disclosureAccepted: false
+    };
+    let settings = {...defaults};
+    let nativeState = {phase: 'idle', detail: 'Gotowy', samples: 0, motion: 'idle', strength: 0};
+    let initialState = {accessibilityEnabled: false, accessibilityRunning: false};
+    let saveTimer = null;
+    let toastTimer = null;
+    let activeMappingKey = null;
+    let capHeading = 0;
+    let previousCapMotion = 'idle';
+    let stampPulseTimer = null;
+
+    const positionDefinitions = [
+      ['joystickX', '&#346;rodek joysticka X'],
+      ['joystickY', '&#346;rodek joysticka Y'],
+      ['joystickRadius', 'Promie&#324; joysticka'],
+      ['stampX', 'Atak X'], ['stampY', 'Atak Y'],
+      ['scrubX', 'U&#380;yj X'], ['scrubY', 'U&#380;yj Y'],
+      ['flipX', 'Bieg X'], ['flipY', 'Bieg Y']
+    ];
+
+    const mappingDefinitions = [
+      ['turnLeftAction', 'Obr\u00f3t w lewo', 'Ruch kapsla przeciwnie do wskaz\u00f3wek zegara'],
+      ['turnRightAction', 'Obr\u00f3t w prawo', 'Ruch kapsla zgodnie ze wskaz\u00f3wkami zegara'],
+      ['goAction', 'Przechylenie kapsla', 'Przechylenie i przytrzymanie'],
+      ['stampAction', 'Stempel', 'Pionowe uderzenie kapslem'],
+      ['scrubAction', 'Przesuni\u0119cie po stole', 'P\u0142aski ruch kapsla'],
+      ['flipAction', 'Odwr\u00f3cenie kapsla', 'Kapsel po\u0142o\u017cony spodem do g\u00f3ry']
+    ];
+
+    const outputDefinitions = [
+      ['TURN_LEFT', 'Joystick w lewo', 'Ci\u0105g\u0142e wychylenie osi X'],
+      ['TURN_RIGHT', 'Joystick w prawo', 'Ci\u0105g\u0142e wychylenie osi X'],
+      ['GO', 'Joystick w g\u00f3r\u0119', 'Ci\u0105g\u0142e wychylenie joysticka'],
+      ['JOYSTICK_DOWN', 'Joystick w d\u00f3\u0142', 'Ci\u0105g\u0142e wychylenie joysticka'],
+      ['SCROLL_UP', 'Przewi\u0144 w g\u00f3r\u0119', 'Powtarzany gest przewijania ekranu'],
+      ['SCROLL_DOWN', 'Przewi\u0144 w d\u00f3\u0142', 'Powtarzany gest przewijania ekranu'],
+      ['STAMP', 'Dotknij: Atak', 'Pojedyncze dotkni\u0119cie pozycji Atak'],
+      ['SCRUB', 'Dotknij: U\u017cyj', 'Pojedyncze dotkni\u0119cie pozycji U\u017cyj'],
+      ['FLIP', 'Przytrzymaj: Bieg', 'Przytrzymanie pozycji Bieg'],
+      ['IDLE', 'Wy\u0142\u0105czone', 'Ten ruch nie wysy\u0142a dotyku']
+    ];
+
+    const outputByAction = {};
+    outputDefinitions.forEach(value => { outputByAction[value[0]] = value; });
+
+    function makePositionFields() {
+      const root = document.getElementById('position-fields');
+      root.innerHTML = positionDefinitions.map(([key, label]) => `
+        <div class="field">
+          <div class="field-head"><label for="${key}">${label}</label><output id="${key}-out">0%</output></div>
+          <input type="range" id="${key}" data-setting="${key}" min="2" max="${key === 'joystickRadius' ? 35 : 98}" step="1">
+        </div>`).join('');
+    }
+
+    function renderMappings() {
+      const root = document.getElementById('mapping-list');
+      root.innerHTML = mappingDefinitions.map(([key, label, detail]) => {
+        const output = outputByAction[settings[key]] || outputByAction.IDLE;
+        return `<button class="mapping" data-mapping="${key}">
+          <span><strong>${label}</strong><small>${detail}</small></span>
+          <span class="mapping-value"><output>${output[1]}</output><span class="mapping-chevron" aria-hidden="true">&#8250;</span></span>
+        </button>`;
+      }).join('');
+      root.querySelectorAll('[data-mapping]').forEach(button => {
+        button.addEventListener('click', () => openMapping(button.dataset.mapping));
+      });
+    }
+
+    function openMapping(key) {
+      const definition = mappingDefinitions.find(value => value[0] === key);
+      if (!definition) return;
+      activeMappingKey = key;
+      document.getElementById('mapping-title').textContent = definition[1];
+      const options = document.getElementById('mapping-options');
+      options.innerHTML = outputDefinitions.map(([action, label, detail]) => `
+        <button class="mapping-option" data-output-action="${action}">
+          <span><strong>${label}</strong><small>${detail}</small></span>
+          <span class="selected" aria-hidden="true">${settings[key] === action ? '&#10003;' : ''}</span>
+        </button>`).join('');
+      options.querySelectorAll('[data-output-action]').forEach(button => {
+        button.addEventListener('click', () => {
+          settings[key] = button.dataset.outputAction;
+          bridge('saveSettings', JSON.stringify(settings));
+          renderMappings();
+          closeMapping();
+          showToast('Mapowanie zapisane.');
+        });
+      });
+      document.getElementById('mapping-modal').hidden = false;
+      document.getElementById('mapping-close').focus();
+    }
+
+    function closeMapping() {
+      document.getElementById('mapping-modal').hidden = true;
+      activeMappingKey = null;
+    }
+
+    function bridge(method, ...args) {
+      if (window.Android && typeof window.Android[method] === 'function') {
+        window.Android[method](...args);
+      }
+    }
+
+    function showToast(message, error = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast show${error ? ' error' : ''}`;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.className = 'toast', 3600);
+    }
+
+    function phaseLabel(phase) {
+      return ({idle: 'Gotowy', scanning: 'Szukam', connecting: '&#321;&#261;cz&#281;', connected: 'Po&#322;&#261;czono', error: 'B&#322;&#261;d'})[phase] || phase;
+    }
+
+    function motionLabel(value) {
+      return ({idle: 'IDLE', settling: 'KALIBRACJA', turn_left: 'SKR&#280;T W LEWO', turn_right: 'SKR&#280;T W PRAWO', go: 'NAPRZ&#211;D', stamp: 'ATAK', flip: 'BIEG', scrub: 'U&#379;YJ'})[value] || String(value).toUpperCase();
+    }
+
+    function setStep(id, status, value) {
+      const step = document.getElementById(id);
+      step.className = `step ${status}`;
+      step.querySelector('strong').innerHTML = value;
+    }
+
+    function renderCapState() {
+      const stage = document.getElementById('cap-stage');
+      const cap = document.getElementById('live-cap');
+      const allowed = ['idle', 'settling', 'turn_left', 'turn_right', 'go', 'stamp', 'scrub', 'flip'];
+      const requested = String(nativeState.motion || 'idle').toLowerCase();
+      const motion = allowed.indexOf(requested) >= 0 ? requested : 'idle';
+      const strength = Math.max(0, Math.min(1, Number(nativeState.strength) || 0));
+
+      if (motion === 'turn_left' || motion === 'turn_right') {
+        const direction = motion === 'turn_left' ? -1 : 1;
+        capHeading = (capHeading + direction * (4 + strength * 12)) % 360;
+      }
+      cap.style.setProperty('--cap-turn', `${capHeading.toFixed(1)}deg`);
+      stage.classList.remove(
+        'motion-idle', 'motion-settling', 'motion-turn-left', 'motion-turn-right',
+        'motion-go', 'motion-stamp', 'motion-scrub', 'motion-flip'
+      );
+      stage.classList.add(`motion-${motion.replace('_', '-')}`);
+
+      if (motion === 'stamp' && previousCapMotion !== 'stamp') {
+        stage.classList.remove('pulse-stamp');
+        void stage.offsetWidth;
+        stage.classList.add('pulse-stamp');
+        clearTimeout(stampPulseTimer);
+        stampPulseTimer = setTimeout(() => stage.classList.remove('pulse-stamp'), 380);
+      }
+      previousCapMotion = motion;
+    }
+
+    function renderState() {
+      const accessOn = !!initialState.accessibilityEnabled;
+      const connected = nativeState.phase === 'connected';
+      const working = nativeState.phase === 'scanning' || nativeState.phase === 'connecting';
+      const outputOn = !!settings.outputEnabled;
+
+      setStep('access-step', accessOn ? 'ok' : '', accessOn ? 'Aktywny' : 'Wy&#322;&#261;czony');
+      setStep('ble-step', connected ? 'ok' : (working ? 'busy' : (nativeState.phase === 'error' ? 'bad' : '')), phaseLabel(nativeState.phase));
+      setStep('output-step', outputOn ? 'ok' : '', outputOn ? 'ON' : 'OFF');
+
+      document.getElementById('disclosure').hidden = accessOn;
+      document.getElementById('status-detail').textContent = nativeState.detail || 'Gotowy';
+      document.getElementById('motion-name').innerHTML = motionLabel(nativeState.motion || 'idle');
+      document.getElementById('strength-meter').style.width = `${Math.round((nativeState.strength || 0) * 100)}%`;
+      document.getElementById('twist-value').textContent = Math.round(nativeState.twist || 0);
+      document.getElementById('tilt-value').textContent = Math.round(nativeState.tilt || 0);
+      document.getElementById('sample-value').textContent = nativeState.samples || 0;
+      renderCapState();
+
+      const connect = document.getElementById('connect-button');
+      connect.disabled = connected || working;
+      connect.innerHTML = working ? 'Trwa &#322;&#261;czenie...' : 'Po&#322;&#261;cz kapsel';
+      document.getElementById('disconnect-button').disabled = !connected && !working;
+      document.getElementById('led-button').disabled = !connected;
+      const output = document.getElementById('output-toggle');
+      output.checked = outputOn;
+      output.disabled = !connected || !accessOn;
+    }
+
+    function renderSettings() {
+      for (const [key] of positionDefinitions) {
+        const input = document.getElementById(key);
+        if (!input) continue;
+        input.value = Math.round(settings[key] * 100);
+        document.getElementById(`${key}-out`).textContent = `${Math.round(settings[key] * 100)}%`;
+      }
+      document.getElementById('turnThreshold').value = settings.turnThreshold;
+      document.getElementById('turnThreshold-out').textContent = Math.round(settings.turnThreshold);
+      document.getElementById('turnSensitivity').value = settings.turnSensitivity;
+      document.getElementById('turnSensitivity-out').textContent = `${Math.round(settings.turnSensitivity)}%`;
+      document.getElementById('invertTurn').checked = !!settings.invertTurn;
+      document.getElementById('disclosure-check').checked = !!settings.disclosureAccepted;
+      renderMappings();
+      renderState();
+    }
+
+    function gatherSettings() {
+      for (const [key] of positionDefinitions) {
+        settings[key] = Number(document.getElementById(key).value) / 100;
+      }
+      settings.turnThreshold = Number(document.getElementById('turnThreshold').value);
+      settings.turnSensitivity = Number(document.getElementById('turnSensitivity').value);
+      settings.invertTurn = document.getElementById('invertTurn').checked;
+    }
+
+    function scheduleSave() {
+      gatherSettings();
+      renderSettings();
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => bridge('saveSettings', JSON.stringify(settings)), 180);
+    }
+
+    window.TRIKI_INITIAL_STATE = value => {
+      initialState = {...initialState, ...value};
+      settings = {...defaults, ...(value.settings || settings)};
+      document.getElementById('version').textContent = `v${value.version || 'alpha'}`;
+      document.getElementById('access-button').title = value.accessibilityServiceName || '';
+      document.getElementById('restricted-app-name').textContent = value.appLabel || 'TRIKI Control';
+      document.getElementById('restricted-help').classList.toggle('visible', Number(value.sdkInt || 0) >= 33);
+      renderSettings();
+    };
+
+    window.TRIKI_NATIVE_STATE = value => {
+      nativeState = {...nativeState, ...value};
+      if (typeof value.outputEnabled === 'boolean') settings.outputEnabled = value.outputEnabled;
+      if (typeof value.accessibilityRunning === 'boolean') initialState.accessibilityRunning = value.accessibilityRunning;
+      renderState();
+    };
+
+    window.TRIKI_ERROR = message => showToast(message, true);
+
+    makePositionFields();
+
+    document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('active', tab === button));
+      document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `tab-${button.dataset.tab}`));
+    }));
+
+    document.getElementById('access-button').addEventListener('click', () => {
+      const accepted = document.getElementById('disclosure-check').checked;
+      settings.disclosureAccepted = accepted;
+      bridge('openAccessibilitySettings', accepted);
+    });
+    document.getElementById('installed-apps-button').addEventListener('click', () => bridge('openInstalledApps'));
+    document.getElementById('mapping-close').addEventListener('click', closeMapping);
+    document.getElementById('mapping-modal').addEventListener('click', event => {
+      if (event.target.id === 'mapping-modal') closeMapping();
+    });
+    document.getElementById('connect-button').addEventListener('click', () => bridge('connect'));
+    document.getElementById('disconnect-button').addEventListener('click', () => bridge('disconnect'));
+    document.getElementById('output-toggle').addEventListener('change', event => {
+      settings.outputEnabled = event.target.checked;
+      bridge('setOutputEnabled', settings.outputEnabled);
+      renderState();
+    });
+
+    const led = document.getElementById('led-button');
+    const ledOff = () => bridge('setLed', false);
+    led.addEventListener('pointerdown', () => bridge('setLed', true));
+    led.addEventListener('pointerup', ledOff);
+    led.addEventListener('pointercancel', ledOff);
+    led.addEventListener('pointerleave', ledOff);
+
+    document.querySelectorAll('[data-setting]').forEach(input => input.addEventListener('input', scheduleSave));
+    document.getElementById('invertTurn').addEventListener('change', scheduleSave);
+    document.getElementById('disclosure-check').addEventListener('change', event => {
+      settings.disclosureAccepted = event.target.checked;
+    });
+
+    document.querySelectorAll('[data-test]').forEach(button => button.addEventListener('click', () => {
+      gatherSettings();
+      bridge('saveSettings', JSON.stringify(settings));
+      bridge('testGesture', button.dataset.test, 5000, button.dataset.test === 'FLIP' ? 1800 : 1200);
+      showToast('Test za 5 sekund. Przelacz sie teraz do gry.');
+    }));
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) bridge('refresh');
+    });
+
+    function blinkLoop() {
+      const face = document.getElementById('mascot-face');
+      face.classList.add('blink');
+      setTimeout(() => face.classList.remove('blink'), 140);
+      setTimeout(blinkLoop, 2400 + Math.random() * 2600);
+    }
+
+    renderSettings();
+    setTimeout(blinkLoop, 1800);
+    bridge('ready');
+  </script>
+</body>
+</html>

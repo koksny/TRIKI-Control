@@ -105,6 +105,20 @@ class ConnectionControl:
         bus.publish({"type": "state", "state": state})
         return state
 
+    def request_disconnect(self, session: CalibrationSession, bus: EventBus) -> dict:
+        self._auto_reconnect_enabled = False
+        self._pairing_requested.clear()
+        state = session.set_status(
+            "disconnecting",
+            "Disconnecting TRIKI; automatic reconnect is paused.",
+        )
+        bus.publish({"type": "state", "state": state})
+        return state
+
+    def cancel_disconnect(self) -> None:
+        if self.auto_after_first_pairing:
+            self._auto_reconnect_enabled = True
+
     async def wait_for_pairing_request(
         self,
         session: CalibrationSession,

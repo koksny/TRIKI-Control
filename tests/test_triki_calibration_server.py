@@ -119,6 +119,28 @@ class CalibrationServerTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_manual_disconnect_pauses_auto_reconnect_until_next_pair_request(self):
+        async def scenario():
+            session = CalibrationSession()
+            bus = EventBus()
+            control = ConnectionControl(manual_pairing=True, auto_after_first_pairing=True)
+
+            first_wait = asyncio.create_task(control.wait_for_pairing_request(session, bus))
+            await asyncio.sleep(0.05)
+            control.request_pairing(session, bus)
+            await asyncio.wait_for(first_wait, timeout=1.0)
+
+            control.request_disconnect(session, bus)
+            second_wait = asyncio.create_task(control.wait_for_pairing_request(session, bus))
+            await asyncio.sleep(0.05)
+            self.assertFalse(second_wait.done())
+            self.assertEqual(session.status, "waiting")
+
+            control.request_pairing(session, bus)
+            await asyncio.wait_for(second_wait, timeout=1.0)
+
+        asyncio.run(scenario())
+
     def test_html_contains_event_source_and_step_controls(self):
         html = build_html()
 

@@ -1,6 +1,7 @@
 import unittest
 import asyncio
 import json
+import threading
 
 from triki_calibration_server import ConnectionControl, EventBus
 from triki_classifier import GesturePrediction, MotionFeatures
@@ -13,6 +14,7 @@ from triki_play import (
     PlaySession,
     build_html,
     build_motion_event,
+    disconnect_client,
     handle_control,
     parse_args,
     play_button_hint,
@@ -222,6 +224,47 @@ class PlayModeTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "TRIKI is not connected"):
             bridge.set_led(True)
+        with self.assertRaisesRegex(RuntimeError, "TRIKI is not connected"):
+            bridge.disconnect()
+
+    def test_disconnect_client_closes_ble_connection(self):
+        class FakeClient:
+            def __init__(self):
+                self.disconnects = 0
+
+            async def disconnect(self):
+                self.disconnects += 1
+
+        client = FakeClient()
+        asyncio.run(disconnect_client(client))
+
+        self.assertEqual(client.disconnects, 1)
+
+    def test_ble_command_bridge_disconnects_on_attached_event_loop(self):
+        class FakeClient:
+            def __init__(self):
+                self.is_connected = True
+                self.disconnects = 0
+
+            async def disconnect(self):
+                self.disconnects += 1
+                self.is_connected = False
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever)
+        loop_thread.start()
+        client = FakeClient()
+        bridge = BleCommandBridge()
+        bridge.attach(client, loop)
+        try:
+            bridge.disconnect()
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+        self.assertEqual(client.disconnects, 1)
+        self.assertFalse(client.is_connected)
 
     def test_button_hint_explains_when_to_press_pairing_button(self):
         self.assertIn("Click Press pairing now", play_button_hint("waiting", ""))

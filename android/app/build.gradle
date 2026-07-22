@@ -1,0 +1,87 @@
+plugins {
+    id "com.android.application"
+}
+
+def releaseSigningFile = rootProject.file("signing.properties")
+def releaseSigning = new Properties()
+if (releaseSigningFile.exists()) {
+    releaseSigningFile.withInputStream { releaseSigning.load(it) }
+}
+
+android {
+    namespace "com.koksny.trikicontrol"
+    compileSdk 35
+    buildToolsVersion "35.0.0"
+
+    defaultConfig {
+        applicationId "com.koksny.trikicontrol"
+        minSdk 26
+        targetSdk 35
+        versionCode 12010
+        versionName "1.2.0"
+        manifestPlaceholders = [
+                appLabel: "TRIKI Control",
+                accessibilityLabel: "TRIKI Control: sterowanie dotykiem"
+        ]
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (releaseSigningFile.exists()) {
+            release {
+                storeFile file(releaseSigning["storeFile"])
+                storePassword releaseSigning["storePassword"]
+                keyAlias releaseSigning["keyAlias"]
+                keyPassword releaseSigning["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            manifestPlaceholders = [
+                    appLabel: "TRIKI Control Test",
+                    accessibilityLabel: "TRIKI Control Test: sterowanie dotykiem"
+            ]
+        }
+        qa {
+            initWith debug
+            applicationIdSuffix ".qa"
+            versionNameSuffix "-qa"
+            matchingFallbacks = ["debug"]
+            manifestPlaceholders = [
+                    appLabel: "TRIKI Control QA",
+                    accessibilityLabel: "TRIKI Control QA: sterowanie dotykiem"
+            ]
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            if (releaseSigningFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test:runner:1.7.0"
+    androidTestImplementation "androidx.test.ext:junit:1.3.0"
+}

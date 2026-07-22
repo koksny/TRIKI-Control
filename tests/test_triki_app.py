@@ -348,9 +348,11 @@ class TrikiAppTests(unittest.TestCase):
             session.create_profile("Arena")
         with self.assertRaisesRegex(ValueError, "profile already exists: Arena"):
             session.create_profile("  Arena  ")
-        # The two built-ins are also reserved.
+        # Built-in names and the Polish Mouse alias are reserved.
         with self.assertRaisesRegex(ValueError, "profile already exists: Game"):
             session.create_profile("Game")
+        with self.assertRaisesRegex(ValueError, "profile already exists: Mouse"):
+            session.create_profile("Myszka")
 
     def test_switch_profile_rejects_unknown_name(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
@@ -501,10 +503,10 @@ class TrikiAppTests(unittest.TestCase):
         self.assertEqual(imported_state["active_profile"], "Arena")
         imported_actions = {item["gesture_label"]: item for item in imported_state["actions"]}
         self.assertEqual(imported_actions["turn-left"]["binding"]["key"], "d")
-        # reset-all collapses back to the two built-ins, active Game (first-class
+        # reset-all collapses back to the built-ins, active Game (first-class
         # motion controls: turn-right -> right).
         self.assertEqual(reset_state["active_profile"], "Game")
-        self.assertEqual(reset_state["profiles"], ["Game", "Music"])
+        self.assertEqual(reset_state["profiles"], ["Game", "Music", "Mouse"])
         reset_actions = {a["gesture_label"]: a for a in reset_state["actions"]}
         self.assertEqual(reset_actions["turn-right"]["binding"]["key"], "right")
         session.switch_profile("Music")
@@ -759,7 +761,7 @@ class TrikiAppTests(unittest.TestCase):
         self.assertIn("Arena", created["profiles"])
         self.assertEqual(created["active_profile"], "Arena")
         self.assertEqual(switched["active_profile"], "Music")
-        self.assertEqual(reset_all["profiles"], ["Game", "Music"])
+        self.assertEqual(reset_all["profiles"], ["Game", "Music", "Mouse"])
 
     def test_handle_control_imports_profiles(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
@@ -796,11 +798,11 @@ class TrikiAppTests(unittest.TestCase):
 
         state = session.snapshot()
 
-        # EXACTLY two built-ins, default active Game. Every profile lists the same
+        # Three built-ins, default active Game. Every profile lists the same
         # first-class Motion/Game controls (nothing hidden, no legacy classifier
         # rows in Advanced).
         self.assertEqual(state["active_profile"], "Game")
-        self.assertEqual(state["profiles"], ["Game", "Music"])
+        self.assertEqual(state["profiles"], ["Game", "Music", "Mouse"])
         game_actions = {item["gesture_label"]: item for item in state["actions"]}
         self.assertEqual(set(game_actions), set(MOTION_LABELS))
         self.assertEqual(game_actions["turn-right"]["binding"]["key"], "right")
@@ -827,14 +829,21 @@ class TrikiAppTests(unittest.TestCase):
         self.assertEqual(music_actions["flip"]["binding"]["key"], "volume-mute")
         self.assertEqual(music_actions["scrub-straight"]["binding"]["key"], "media-next")
 
-    def test_builtin_profile_set_is_exactly_two(self):
-        # The spec contract (pt 5): EXACTLY two built-ins -- Game + Music -- and the
+        session.switch_profile("Mouse")
+        mouse_actions = {
+            item["gesture_label"]: item for item in session.snapshot()["actions"]
+        }
+        self.assertEqual(mouse_actions["turn-left"]["binding"]["key"], "mouse-move-left")
+        self.assertEqual(mouse_actions["turn-right"]["binding"]["key"], "mouse-move-right")
+
+    def test_builtin_profile_set_is_game_music_and_mouse(self):
+        # Game, Music, and Mouse are the built-ins; the
         # old nine (Default, WASD Game, Presentation, 'Which Sausage, Mate?', Doom,
         # Doom Motion, Doom / Steering, Experimental Pointer, Media) are GONE. Locked
         # at BOTH the defaults source and a live default session so neither can drift.
         from triki_actions import default_profile_map
 
-        self.assertEqual(set(default_profile_map()), {"Game", "Music"})
+        self.assertEqual(set(default_profile_map()), {"Game", "Music", "Mouse"})
         for banished in (
             "Default", "WASD Game", "Presentation", "Which Sausage, Mate?",
             "Doom", "Doom Motion", "Doom / Steering", "Experimental Pointer", "Media",
@@ -842,7 +851,7 @@ class TrikiAppTests(unittest.TestCase):
             self.assertNotIn(banished, default_profile_map())
 
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
-        self.assertEqual(session.snapshot()["profiles"], ["Game", "Music"])
+        self.assertEqual(session.snapshot()["profiles"], ["Game", "Music", "Mouse"])
 
     def test_app_session_exposes_battery_state(self):
         session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
@@ -917,6 +926,34 @@ class TrikiAppTests(unittest.TestCase):
         self.assertEqual(state["status"], "pairing")
         self.assertFalse(state["output_enabled"])
         self.assertTrue(control.is_pairing_requested())
+
+    def test_disconnect_control_stops_output_and_calls_ble_bridge(self):
+        class FakeBridge:
+            def __init__(self):
+                self.calls = 0
+
+            def disconnect(self):
+                self.calls += 1
+
+        session = AppSession(executor=ActionExecutor(key_emitter=NullKeyEmitter()))
+        session.set_status("ready", "UART_READY")
+        session.set_output_enabled(True)
+        bus = EventBus()
+        control = ConnectionControl(manual_pairing=True, auto_after_first_pairing=True)
+        bridge = FakeBridge()
+
+        state = handle_control(
+            session,
+            "disconnect",
+            {},
+            bus=bus,
+            connection_control=control,
+            command_bridge=bridge,
+        )
+
+        self.assertEqual(bridge.calls, 1)
+        self.assertEqual(state["status"], "disconnected")
+        self.assertFalse(state["output_enabled"])
 
     def test_led_control_writes_hold_state_through_ble_bridge(self):
         class FakeBridge:
@@ -1046,17 +1083,16 @@ class TrikiAppTests(unittest.TestCase):
         self.assertNotIn('id="status"', html)
         self.assertNotIn("status-badge", html)
 
-    def test_pair_button_turns_green_when_ble_is_connected_or_ready(self):
+    def test_pair_button_becomes_disconnect_control_when_ble_is_ready(self):
         html = build_html()
 
         self.assertIn(".pair-button.connected", html)
         self.assertIn("const isConnected = state.status === 'connected' || state.status === 'ready';", html)
         self.assertIn("pairButton.classList.toggle('connected', isConnected);", html)
-        # The button label is now i18n-keyed (PL default / EN), so it goes through
-        # the T() lookup instead of a hard-coded English literal.
-        self.assertIn("pairButton.textContent = isConnected ? T('connect.connected') : T('connect.pair');", html)
-        self.assertIn("'connect.connected': 'Connected'", html)
-        self.assertIn("'connect.connected': 'Połączono'", html)
+        self.assertIn("pairButton.dataset.action = isConnected ? 'disconnect' : 'pairing';", html)
+        self.assertIn("? T('connect.disconnect')", html)
+        self.assertIn("'connect.disconnect': 'Disconnect'", html)
+        self.assertIn("'connect.disconnect': 'Rozłącz'", html)
 
     def test_html_exposes_press_and_hold_led_test_control(self):
         html = build_html()
@@ -1169,12 +1205,13 @@ class TrikiAppTests(unittest.TestCase):
         html = build_html()
 
         # Game picker: one tile per profile, switching by exact profile name. The
-        # built-in tiles are EXACTLY the two-profile world (Game + Music); the old
+        # built-in tiles are Game, Music, and Mouse; the old
         # 9-profile gameMeta (Doom/WASD Game/Sausage/etc.) is gone.
         self.assertIn('id="game-grid"', html)
         self.assertIn("renderGameTiles", html)
         self.assertIn("'Game':", html)
         self.assertIn("'Music':", html)
+        self.assertIn("'Mouse':", html)
         self.assertNotIn("'Which Sausage, Mate?'", html)
         self.assertNotIn("'WASD Game'", html)
         self.assertNotIn("'Doom Motion'", html)
@@ -2680,9 +2717,10 @@ class I18nUiTests(unittest.TestCase):
 class MovementSurfacingUiTests(unittest.TestCase):
     def test_html_surfaces_tilt_live_diagnostics_without_calibration(self):
         html = build_html()
-        # Exactly two built-in tiles (Game + Music); NO Doom Motion / 9-profile meta.
+        # The three built-in tiles are present; NO Doom Motion / 9-profile meta.
         self.assertIn("'Game':", html)
         self.assertIn("'Music':", html)
+        self.assertIn("'Mouse':", html)
         self.assertNotIn("'Doom Motion':", html)
         self.assertNotIn("DOOM Motion", html)
         # NO calibrate control of any kind.

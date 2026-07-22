@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0
+
+- Added the native Android controller: BLE cap connection, background foreground-service operation, configurable touch/joystick/scroll mappings, and accessibility gestures without root.
+- Added Mouse as the third built-in desktop profile, with left/right cap turns mapped to continuous pointer movement by default.
+- Migrated the former custom Polish `Myszka` profile into the built-in Mouse slot without duplicating it or losing its mappings and tuning.
+- Made the desktop Connect button become a real Disconnect command while connected; manual disconnect now stops output and pauses automatic reconnect.
+- Fixed poisoned connect-time calibration that could leave the desktop cap reporting a permanent Slide after it was moved during startup.
+- Added automatic recovery for stale reconnect calibration while preserving established Game/Doom motion thresholds and bindings.
+- Refreshed the README with current desktop and Android screenshots plus a ten-second gameplay clip.
+
 ## 1.1.1
 
 - Added a per-profile Continuous mouse axis option for pointer directions mapped to left/right cap turns.

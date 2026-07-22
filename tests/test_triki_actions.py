@@ -14,6 +14,7 @@ from triki_actions import (
     MOTION_LABELS,
     MAX_MACRO_DELAY_MS,
     MOTION_PROFILE_NAME,
+    MOUSE_PROFILE_NAME,
     MUSIC_PROFILE_NAME,
     ActionBinding,
     ActionExecutor,
@@ -59,11 +60,10 @@ class TrikiActionTests(unittest.TestCase):
         self.assertNotIn("swirl-cw", actions)
         self.assertNotIn("shake", actions)
 
-    def test_exactly_two_builtin_profiles_game_and_music(self):
+    def test_builtin_profiles_game_music_and_mouse(self):
         profiles = default_profile_map()
 
-        # EXACTLY two built-ins, in order: Game (default) then Music.
-        self.assertEqual(list(profiles.keys()), ["Game", "Music"])
+        self.assertEqual(list(profiles.keys()), ["Game", "Music", "Mouse"])
         self.assertEqual(set(profiles.keys()), set(BUILTIN_PROFILE_NAMES))
         self.assertEqual(DEFAULT_PROFILE_NAME, "Game")
         # No legacy profile survives.
@@ -98,6 +98,7 @@ class TrikiActionTests(unittest.TestCase):
         profiles = default_profile_map()
         game = profiles["Game"]
         music = profiles["Music"]
+        mouse = profiles["Mouse"]
 
         self.assertEqual(default_actions_for_profile("Arena"), game)
         self.assertEqual(labels_for_profile("Game"), MOTION_LABELS)
@@ -110,10 +111,15 @@ class TrikiActionTests(unittest.TestCase):
         self.assertEqual(music["stamp"].key_name, "media-play-pause")
         self.assertEqual(music["flip"].key_name, "volume-mute")
         self.assertEqual(music["scrub-straight"].key_name, "media-next")
+        self.assertEqual(set(mouse), set(MOTION_LABELS))
+        self.assertEqual(mouse["turn-left"].key_name, "mouse-move-left")
+        self.assertEqual(mouse["turn-right"].key_name, "mouse-move-right")
+        self.assertEqual(mouse["go"].key_name, game["go"].key_name)
 
     def test_builtin_profiles_have_separate_motion_tuning_defaults(self):
         game = default_motion_settings_for_profile("Game")
         music = default_motion_settings_for_profile("Music")
+        mouse = default_motion_settings_for_profile("Mouse")
 
         self.assertEqual(game.turn_threshold, 1000.0)
         self.assertLess(music.turn_threshold, game.turn_threshold)
@@ -123,16 +129,18 @@ class TrikiActionTests(unittest.TestCase):
         self.assertEqual(music.mouse_speed, DEFAULT_MOUSE_SPEED)
         self.assertTrue(game.mouse_axis_enabled)
         self.assertTrue(music.mouse_axis_enabled)
+        self.assertEqual(mouse, game)
 
-    def test_empty_config_starts_with_two_profiles_active_game(self):
+    def test_empty_config_starts_with_builtin_profiles_active_game(self):
         config = TrikiConfig().merged_with_defaults()
 
         self.assertEqual(config.active_profile, "Game")
-        self.assertEqual(list(config.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(list(config.profiles.keys()), ["Game", "Music", "Mouse"])
         self.assertEqual(config.engine, ENGINE_MOTION)
         self.assertEqual(config.actions["turn-right"].key_name, "right")
         self.assertIn("Game", config.profile_settings)
         self.assertIn("Music", config.profile_settings)
+        self.assertIn("Mouse", config.profile_settings)
 
     def test_media_keys_are_supported_as_action_targets(self):
         self.assertEqual(vk_for_key("volume-up"), 0xAF)
@@ -263,7 +271,7 @@ class TrikiActionTests(unittest.TestCase):
             self.assertTrue(path.exists())
             self.assertEqual(list(Path(directory).glob("*.tmp")), [])
 
-    def test_load_config_collapses_to_two_profiles(self):
+    def test_load_config_collapses_to_builtin_profiles(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
             path.write_text(
@@ -273,12 +281,12 @@ class TrikiActionTests(unittest.TestCase):
 
             loaded = load_config(path)
 
-        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music", "Mouse"])
         self.assertNotIn("shake", loaded.actions)
         self.assertEqual(loaded.actions["turn-right"].key_name, "right")
 
     def test_config_keeps_custom_profiles_alongside_two_builtins(self):
-        # Custom (user-created) profiles survive the collapse; the two built-ins are
+        # Custom (user-created) profiles survive the collapse; the built-ins are
         # always added. A custom active profile stays active.
         config = TrikiConfig(
             profiles={
@@ -299,18 +307,22 @@ class TrikiActionTests(unittest.TestCase):
             loaded = load_config(path)
 
         self.assertEqual(raw["version"], CONFIG_VERSION)
-        self.assertEqual(sorted(raw["profiles"].keys()), ["Desktop", "Game", "Music", "My Doom"])
-        # The two built-ins always exist.
+        self.assertEqual(
+            sorted(raw["profiles"].keys()),
+            ["Desktop", "Game", "Mouse", "Music", "My Doom"],
+        )
+        # All built-ins always exist.
         self.assertIn("Game", loaded.profiles)
         self.assertIn("Music", loaded.profiles)
+        self.assertIn("Mouse", loaded.profiles)
         self.assertTrue(loaded.output_enabled)
         self.assertEqual(loaded.active_profile, "My Doom")
         self.assertEqual(loaded.actions["turn-right"].key_name, "d")
         self.assertEqual(set(loaded.actions), set(MOTION_LABELS))
 
-    def test_legacy_v7_nine_profile_config_collapses_to_two(self):
+    def test_legacy_v7_nine_profile_config_collapses_to_builtins(self):
         # The real on-disk world: a v7 config with the nine historical profiles and
-        # active='WASD Game'. It must collapse to EXACTLY {Game, Music}, remap the
+        # active='WASD Game'. It must collapse to the current built-ins, remap the
         # active profile to Game, derive engine='motion', and bump version to 9.
         nine = {
             name: {"rotate-cw": {"type": "key", "key": "right"}}
@@ -342,7 +354,7 @@ class TrikiActionTests(unittest.TestCase):
 
             loaded = load_config(path)
 
-        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music", "Mouse"])
         self.assertEqual(loaded.active_profile, "Game")
         self.assertEqual(loaded.engine, ENGINE_MOTION)
         self.assertEqual(loaded.version, CONFIG_VERSION)
@@ -354,6 +366,7 @@ class TrikiActionTests(unittest.TestCase):
         # row); the old discrete labels never leak into the motion vocabulary.
         self.assertEqual(loaded.profiles["Game"], default_profile_map()["Game"])
         self.assertEqual(loaded.profiles["Music"], default_profile_map()["Music"])
+        self.assertEqual(loaded.profiles["Mouse"], default_profile_map()["Mouse"])
 
     def test_legacy_active_media_remaps_to_music(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -373,7 +386,7 @@ class TrikiActionTests(unittest.TestCase):
 
         self.assertEqual(loaded.active_profile, "Music")
         self.assertEqual(loaded.engine, ENGINE_MOTION)
-        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music", "Mouse"])
         self.assertEqual(loaded.actions, default_profile_map()["Music"])
 
     def test_v14_music_game_defaults_reset_to_media_defaults(self):
@@ -413,6 +426,38 @@ class TrikiActionTests(unittest.TestCase):
 
         self.assertEqual(config.profiles["Music"]["stamp"].key_name, "space")
         self.assertEqual(config.profiles["Music"]["turn-right"].key_name, "volume-up")
+
+    def test_v19_polish_mouse_profile_migrates_without_duplicate(self):
+        loaded = TrikiConfig.from_dict(
+            {
+                "version": 19,
+                "active_profile": "Myszka",
+                "profiles": {
+                    "Myszka": {
+                        "turn-left": {"type": "key", "key": "mouse-move-left"},
+                        "turn-right": {"type": "key", "key": "mouse-move-right"},
+                        "stamp": {"type": "key", "key": "ctrl"},
+                    }
+                },
+                "profile_settings": {
+                    "Myszka": {
+                        "turn_threshold": 720,
+                        "turn_sensitivity": 74,
+                        "mouse_speed": 31,
+                        "mouse_axis_enabled": False,
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(list(loaded.profiles), ["Game", "Music", "Mouse"])
+        self.assertEqual(loaded.active_profile, "Mouse")
+        self.assertNotIn("Myszka", loaded.profiles)
+        self.assertEqual(loaded.actions["turn-left"].key_name, "mouse-move-left")
+        self.assertEqual(loaded.actions["turn-right"].key_name, "mouse-move-right")
+        self.assertEqual(loaded.actions["stamp"].key_name, "ctrl")
+        self.assertEqual(loaded.profile_settings["Mouse"].mouse_speed, 31)
+        self.assertFalse(loaded.profile_settings["Mouse"].mouse_axis_enabled)
 
     def test_v1_0_1_and_v1_0_2_game_bindings_survive_config_merge(self):
         # v1.0.1 (schema 14) and v1.0.2 (schema 15) already used the current
@@ -513,7 +558,7 @@ class TrikiActionTests(unittest.TestCase):
             loaded = load_config(path)
 
         self.assertEqual(loaded.active_profile, "Game")
-        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music", "Mouse"])
         # Fresh first-class Game defaults, not the stored legacy actions.
         self.assertEqual(loaded.actions["turn-right"].key_name, "right")
 
@@ -522,6 +567,8 @@ class RemapLegacyProfileNameTests(unittest.TestCase):
     def test_builtins_pass_through(self):
         self.assertEqual(remap_legacy_profile_name("Game"), "Game")
         self.assertEqual(remap_legacy_profile_name("Music"), "Music")
+        self.assertEqual(remap_legacy_profile_name("Mouse"), "Mouse")
+        self.assertEqual(remap_legacy_profile_name("Myszka"), "Mouse")
 
     def test_media_maps_to_music(self):
         self.assertEqual(remap_legacy_profile_name("Media"), "Music")
@@ -568,7 +615,7 @@ class HoldMsConfigTests(unittest.TestCase):
 
     def test_old_config_drops_legacy_builtins_but_keeps_custom_profiles(self):
         # Legacy BUILT-IN names (Default) are dropped; a user-created custom profile
-        # (My Game) survives. The two built-ins are always present.
+        # (My Game) survives. The built-ins are always present.
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
             path.write_text(
@@ -665,7 +712,7 @@ class LoadConfigResilienceTests(unittest.TestCase):
             self.assertFalse(backup.exists())
         # A valid (parseable) legacy config still loads without a backup, but the
         # collapse ships the fresh Game built-in (old custom rows are discarded).
-        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(list(loaded.profiles.keys()), ["Game", "Music", "Mouse"])
         self.assertEqual(loaded.actions["turn-right"].key_name, "right")
 
     def test_from_dict_rejects_non_object_payload(self):
@@ -693,8 +740,8 @@ class MacroValidationTests(unittest.TestCase):
 
 
 class ForwardCompatibleMigrationTests(unittest.TestCase):
-    def test_version_above_current_collapses_to_two_and_clamps_version(self):
-        # A future / higher-version config also collapses to the two built-ins and
+    def test_version_above_current_collapses_to_builtins_and_clamps_version(self):
+        # A future / higher-version config also collapses to the built-ins and
         # the version is clamped to CONFIG_VERSION.
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "triki.json"
@@ -713,7 +760,7 @@ class ForwardCompatibleMigrationTests(unittest.TestCase):
             save_config(path, loaded)
             raw = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(sorted(loaded.profiles.keys()), ["Game", "Music"])
+        self.assertEqual(sorted(loaded.profiles.keys()), ["Game", "Mouse", "Music"])
         self.assertEqual(loaded.active_profile, "Game")
         self.assertEqual(loaded.version, CONFIG_VERSION)
         self.assertEqual(raw["version"], CONFIG_VERSION)
@@ -723,6 +770,7 @@ class EngineSelectionTests(unittest.TestCase):
     def test_every_profile_uses_motion_engine(self):
         self.assertEqual(engine_for_profile(GAME_PROFILE_NAME), ENGINE_MOTION)
         self.assertEqual(engine_for_profile(MUSIC_PROFILE_NAME), ENGINE_MOTION)
+        self.assertEqual(engine_for_profile(MOUSE_PROFILE_NAME), ENGINE_MOTION)
         # MOTION_PROFILE_NAME is an alias of Game.
         self.assertEqual(MOTION_PROFILE_NAME, GAME_PROFILE_NAME)
         self.assertEqual(engine_for_profile(MOTION_PROFILE_NAME), ENGINE_MOTION)

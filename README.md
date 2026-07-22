@@ -1,8 +1,14 @@
 # TRIKI Control
 
-![TRIKI Control desktop UI](triki-control_screenshot.jpg)
+<table>
+  <tr>
+    <td width="56%" valign="top"><img src="docs/media/triki-control-desktop.png" alt="TRIKI Control on Windows" width="100%"></td>
+    <td width="25%" valign="top"><a href="https://www.youtube.com/shorts/q6zt8AbzT94"><img src="docs/media/triki-control-demo.gif" alt="TRIKI Control driving Doom" width="100%"></a></td>
+    <td width="19%" valign="top"><img src="docs/media/triki-control-android.jpg" alt="TRIKI Control on Android" width="100%"></td>
+  </tr>
+</table>
 
-![Version](https://img.shields.io/badge/version-1.1.1-ff2bd6.svg) [![Tests](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml/badge.svg)](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+![Version](https://img.shields.io/badge/version-1.2.0-ff2bd6.svg) [![Tests](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml/badge.svg)](https://github.com/koksny/TRIKI-Control/actions/workflows/tests.yml) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-lightgrey.svg)
 
 **Play PC games by waving a bottle cap around.**
 
@@ -32,7 +38,7 @@ No drivers, no account. One pairing button, a few profiles to tweak, and the cap
 
 The cap is a smooth, round disc with a 6-axis motion sensor (a gyroscope and an accelerometer) and a Bluetooth radio. It has no buttons, no marked front, and no magnetometer, so it genuinely does not know which way it is pointing. TRIKI Control takes the raw motion stream, figures out *what you are doing with it* (twisting? tilting? tapping it on the desk?), and fires a key for each move.
 
-Out of the box it ships with two ready profile slots, **Game** and **Music**. Both use the same tank-style motion controls; Game defaults to game keys, while Music defaults to volume, track, mute and play/pause media keys. The Advanced panel lets you remap every move to a key, media key, mouse button, mouse movement, or short macro.
+Out of the box the desktop app ships with three ready profile slots: **Game**, **Music**, and **Mouse**. All three use the same tank-style motion controls; Game defaults to game keys, Music to media keys, and Mouse maps left/right twists to continuous pointer movement. The Advanced panel lets you remap every move to a key, media key, mouse button, mouse movement, or short macro.
 
 ## Controls
 
@@ -74,12 +80,21 @@ The long version, with the math and the dead ends, is in **[docs/how-it-works.md
 1. Grab `TRIKI-Control.exe` from the [**Releases**](https://github.com/koksny/TRIKI-Control/releases) page and run it. (Windows SmartScreen may warn about an unknown publisher; it is an unsigned hobby build, so choose "More info > Run anyway".)
 2. The app opens its own little window. If it does not, open **http://127.0.0.1:8766/** in a browser.
 3. Click **Connect**, then press the cap's **physical button once** when asked.
-4. Wait for the button to turn green and read **Connected**. Hold **Test LED** to confirm the cap is listening.
+4. Wait until the app says **Connected** and the connect button changes to **Disconnect**. Hold **Test LED** to confirm the cap is listening.
 5. Pick a game (or leave it on the default), click **TURN CONTROL ON**, click into your game, and play.
 
 That is it. No install. On Windows, settings live in `%APPDATA%\TRIKI\config.json`.
 
 Closing the window with **X** keeps TRIKI Control running by the clock and shows a notification explaining what happened. Choose **Disable control** from the tray to stop sending input, or use the red **Quit** button in the app to close it completely. Control always starts OFF and is also turned OFF if the Bluetooth connection drops.
+
+### Run it (Android)
+
+1. Download `TRIKI-Control-Android-1.2.0.apk` from [**Releases**](https://github.com/koksny/TRIKI-Control/releases), open it on a phone running Android 8.0 or newer, and allow installation from that source.
+2. Accept the in-app explanation and enable the **TRIKI Control: touch control** accessibility service. Android 13 or newer may require **Allow restricted settings** first from TRIKI Control's entry on the **All apps** screen.
+3. Return to TRIKI Control, connect the cap, choose an output for each motion, and set the on-screen joystick/button positions for your game.
+4. Turn **Game control** on, switch to the game, and use the cap. No root, ADB, or Shizuku is required.
+
+Android deliberately protects sideloaded accessibility services, so the restricted-settings confirmation cannot be skipped by the app. Installing from a trusted app store is the platform-supported way to avoid that sideloading step.
 
 ### Run it from Python
 
@@ -89,6 +104,7 @@ See [Building from source](#building-from-source) if you would rather run the co
 
 - **Game** is the tank scheme above, run by the body-frame motion engine. This is the one built and tuned for actually playing through Doom.
 - **Music** is a second built-in profile slot with the same controls as Game, but its default mappings are media controls: volume down/up, previous/next track, mute, and play/pause. Volume twists are sent as repeated media-key taps, so holding a twist behaves more like a volume knob.
+- **Mouse** keeps the Game controls but maps left/right twists to continuous cursor movement by default. Slow twists make small adjustments and faster twists move the pointer faster.
 
 Profiles can be selected, edited, exported, imported, reset one at a time, or reset as a whole set. Bindings accept single keys (`w`, `left`, `enter`, `space`, `=`), media keys (`volume-up`, `media-play-pause`), mouse buttons and directions (`mouse-left-button`, `mouse-move-up`), and short macros (`left, 100ms, enter`). Mouse movement speed is saved separately for each profile.
 
@@ -96,7 +112,7 @@ There is a hidden diagnostics page at **http://127.0.0.1:8766/debug** and a raw 
 
 ## Building from source
 
-You need Python 3.11+ and the cap. Full per-platform instructions (including the PyInstaller specs that produce the standalone executables) are in **[docs/build.md](docs/build.md)**. The short version:
+You need Python 3.11+ and the cap. Full desktop instructions (including the PyInstaller specs that produce the standalone executables) are in **[docs/build.md](docs/build.md)**. Android has its own Gradle project and build notes in **[android/README.md](android/README.md)**. The desktop short version:
 
 ```bash
 python -m venv .venv
@@ -112,6 +128,7 @@ The application modules live under `src/` as flat `triki_*.py` files. Start at `
 - **Windows.** Keyboard and mouse output uses `SendInput` (scancodes for normal keys, virtual-key events for media keys). A few games with aggressive anti-cheat ignore synthetic input; most do not.
 - **macOS.** Keyboard and mouse output goes through Quartz/CoreGraphics and needs **Accessibility** permission (System Settings > Privacy & Security > Accessibility). The packaged app carries the Bluetooth usage strings CoreBluetooth requires.
 - **Linux.** Keyboard and mouse output is written to `/dev/uinput`, which needs the right permissions; the BLE UI also needs a system WebKit/Qt backend that pip cannot install. See [docs/linux.md](docs/linux.md).
+- **Android.** Touch output uses an `AccessibilityService` and works without root. Android 13+ may gate a sideloaded build behind **Allow restricted settings**; some games can also reject generated accessibility gestures.
 
 ## Documentation
 
@@ -120,6 +137,7 @@ The application modules live under `src/` as flat `triki_*.py` files. Start at `
 - [Building & packaging](docs/build.md): dev setup and standalone builds for all three platforms.
 - [BLE protocol notes](docs/protocol.md): service UUIDs, the stream-start commands, the LED command, and the six motion channels.
 - [Linux notes](docs/linux.md): uinput and the GUI backend.
+- [Android port](android/README.md): installation, touch mapping, build requirements, and platform limitations.
 
 ## Credits
 

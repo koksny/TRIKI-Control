@@ -1,6 +1,6 @@
 # Controls & play guide
 
-TRIKI Control ships two built-in profile slots. **Game** is the default, rotation-invariant scheme tuned for shooters. **Music** is a second built-in slot with the same controls but media-key defaults, so **Advanced > Action Mapping** shows one consistent table for every profile.
+TRIKI Control ships three built-in profile slots. **Game** is the default, rotation-invariant scheme tuned for shooters. **Music** keeps the same controls with media-key defaults. **Mouse** maps left/right turns to continuous pointer movement. **Advanced > Action Mapping** shows one consistent table for every profile.
 
 ## Game profile (the tank scheme)
 
@@ -36,6 +36,8 @@ Every row in **Action Mapping** can be rebound to any key, media key, left/right
 
 For the **Music** profile, those same rows default to media controls: `turn-left` lowers volume, `turn-right` raises volume, `go` goes to the previous track, `stamp` toggles play/pause, `flip` mutes, and `scrub-straight` skips to the next track. Volume up/down repeat while the twist is held, so a held twist acts more like a knob than a single click.
 
+For the **Mouse** profile, left/right turns default to `mouse-move-left` and `mouse-move-right`. Continuous mouse axis is enabled, so pointer speed follows twist speed; every other row starts from the Game defaults and remains editable.
+
 ## A note on "more axes"
 
 You will notice the Game profile has no strafe and no separate forward/back/left/right movement, just turn and go. That is not a missing feature; it is the hard limit of the hardware. A round cap with a gyro and accelerometer but **no magnetometer** cannot know which way it is pointing, so directional movement (push-left-go-left) is physically impossible to do reliably. It is the same reason the cap's official games each use a single axis of motion: ask this device to track two things at once and the signals smear into noise. The tank scheme is what is achievable, and it is enough to finish a game. The full explanation is in [how-it-works.md](how-it-works.md).
@@ -46,4 +48,5 @@ You will notice the Game profile has no strafe and no separate forward/back/left
 - Clicking **X** hides the window but leaves the app running by the clock. A notification explains this. Choose **Disable control** from the tray to stop input immediately.
 - The red **Quit** button in the app closes TRIKI Control completely. The tray also has a separate **Quit** command.
 - Losing the Bluetooth connection turns control OFF and releases held keys or mouse buttons. Every fresh launch also starts with control OFF.
+- While connected, the large button in Step 1 changes to **Disconnect**. Using it turns control OFF, closes Bluetooth, and pauses automatic reconnect until you choose Connect again.
 - Bindings and the active profile are saved to one JSON config file. On Windows it is `%APPDATA%\TRIKI\config.json`.
